@@ -2,7 +2,7 @@
    Guarda la app completa en el iPad la primera vez que se abre con conexión.
    Después abre siempre desde el caché, con o sin internet.
    Cada vez que cambies un archivo del repo, subí el número de VERSION. */
-var VERSION = "1.0.0";
+var VERSION = "1.0.1";
 var CACHE = "botonera-" + VERSION;
 var FILES = [
   "./",
@@ -25,7 +25,10 @@ var FILES = [
 ];
 
 self.addEventListener("install", function(e){
-  e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(FILES); }));
+  /* cache:"reload" saltea el caché HTTP de GitHub Pages (10 min), así la versión nueva no guarda archivos viejos */
+  e.waitUntil(caches.open(CACHE).then(function(c){
+    return c.addAll(FILES.map(function(u){ return new Request(u, {cache:"reload"}); }));
+  }));
 });
 
 self.addEventListener("activate", function(e){
