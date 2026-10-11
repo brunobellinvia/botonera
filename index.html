@@ -122,7 +122,7 @@ button{touch-action:manipulation}
 .txt,select.txt{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:17px;min-width:0;flex:1}
 .cur{font-family:var(--f-mono);font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:break-all}
 .cur.none{color:var(--muted)}
-.file{position:relative;overflow:hidden}
+.file{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center}
 .file input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:100px}
 .swatches{display:flex;flex-wrap:wrap;gap:8px}
 .sw{width:40px;height:40px;border-radius:8px;border:2px solid transparent;cursor:pointer;background:var(--c)}
@@ -130,6 +130,32 @@ button{touch-action:manipulation}
 .sheet input[type=range]{flex:1;accent-color:var(--accent)}
 .val{font-family:var(--f-mono);font-size:14px;min-width:5ch;text-align:right;font-variant-numeric:tabular-nums}
 .check{display:flex;gap:10px;align-items:center;font-size:17px;cursor:pointer}
+.check.small{font-size:15px}
+.trimInfo{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.btn:disabled{opacity:.4;cursor:default}
+
+/* pantalla de recorte: ocupa todo; vista general arriba, forma de onda grande al medio, marcas y acciones abajo */
+.trim{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;gap:10px;
+  padding:calc(10px + env(safe-area-inset-top,0px)) 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.trim-head{display:flex;align-items:center;gap:12px}
+.trim-title{flex:1;min-width:0;display:flex;align-items:baseline;gap:12px}
+.trim-title b{font-size:22px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.trim-title span{font-family:var(--f-mono);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trim-over{height:52px;flex:none;border-radius:8px;overflow:hidden;background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)}
+.trim-main{position:relative;flex:1;min-height:140px;border-radius:10px;overflow:hidden;background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)}
+.trim canvas{display:block;width:100%;height:100%;touch-action:none}
+.trim-range{position:absolute;left:10px;bottom:6px;font-family:var(--f-mono);font-size:11px;color:var(--muted);pointer-events:none;font-variant-numeric:tabular-nums}
+.trim-range.r{left:auto;right:30px}
+.trim-marks{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.mark{display:flex;align-items:center;gap:8px}
+.mark.mid{flex-direction:column;gap:0;align-items:center}
+.mlabel{font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.mark output{font-family:var(--f-mono);font-size:17px;width:10ch;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mark small{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.nud{width:44px;height:44px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-size:22px;cursor:pointer;line-height:1}
+.trim-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.trim-hint{margin:0}
+@media (max-width:520px){.trim-title span{display:none}.mark output{width:8ch;font-size:15px}}
 .check input{width:22px;height:22px;accent-color:var(--accent)}
 .msg{font-family:var(--f-mono);font-size:13px;color:var(--danger);margin:0}
 .msg.ok{color:var(--muted)}
@@ -202,7 +228,9 @@ body{margin:0}
     <div class="row">
       <label class="btn primary file">Cargar archivo<input type="file" id="edFile" accept="audio/*,.wav,.mp3,.ogg,.m4a,.aif,.aiff,.caf"></label>
       <button class="btn" id="edTest">Probar</button>
+      <button class="btn" id="edTrim">Recortar</button>
     </div>
+    <div class="trimInfo" id="edTrimInfo"></div>
     <select class="txt" id="edPick" aria-label="Usar un sonido ya cargado"></select>
     <p class="msg" id="edMsg" hidden></p>
   </div>
@@ -231,6 +259,42 @@ body{margin:0}
     </div>
     <p class="foot">Exportar arma un .json con la grilla y los sonidos adentro. En el iPad se abre Compartir: elegí "Guardar en Archivos".</p>
   </div>
+</section>
+
+<section class="trim" id="trim" hidden aria-label="Recortar sonido">
+  <header class="trim-head">
+    <button class="btn" id="trCancel">Cancelar</button>
+    <div class="trim-title"><b>Recortar</b><span id="trName"></span></div>
+    <button class="btn primary" id="trDone">Listo</button>
+  </header>
+  <div class="trim-over"><canvas id="trOver" aria-label="Vista general del sonido"></canvas></div>
+  <div class="trim-main"><canvas id="trMain" aria-label="Forma de onda con marcas de inicio y fin"></canvas>
+    <span class="trim-range" id="trRangeL"></span><span class="trim-range r" id="trRangeR"></span>
+  </div>
+  <div class="trim-marks">
+    <div class="mark"><span class="mlabel">Inicio</span>
+      <button class="nud" id="trSm" aria-label="Mover inicio atrás">−</button>
+      <output id="trSo"></output>
+      <button class="nud" id="trSp" aria-label="Mover inicio adelante">+</button>
+    </div>
+    <div class="mark mid"><span class="mlabel">Duración</span><output id="trLen"></output><small id="trStep"></small></div>
+    <div class="mark"><span class="mlabel">Fin</span>
+      <button class="nud" id="trEm" aria-label="Mover fin atrás">−</button>
+      <output id="trEo"></output>
+      <button class="nud" id="trEp" aria-label="Mover fin adelante">+</button>
+    </div>
+  </div>
+  <div class="trim-actions">
+    <button class="btn primary" id="trPlay">Reproducir</button>
+    <button class="btn" id="trAuto">Quitar silencio</button>
+    <button class="btn" id="trFit">Ver recorte</button>
+    <button class="btn" id="trAll">Ver todo</button>
+    <button class="btn" id="trZo" aria-label="Alejar">Zoom −</button>
+    <button class="btn" id="trZi" aria-label="Acercar">Zoom +</button>
+    <button class="btn warn" id="trReset">Sin recorte</button>
+    <label class="check small"><input type="checkbox" id="trSnap" checked> Ajustar a cruce por cero</label>
+  </div>
+  <p class="foot trim-hint">Arrastrá las marcas para cortar. Un dedo mueve la vista, dos dedos hacen zoom. Tocá la barra de arriba para saltar a otra parte del sonido.</p>
 </section>
 
 <script>
@@ -266,7 +330,14 @@ function trigger(i){
   var g = padGain(i);
   if(cell.choke && voices[i]){ try{ voices[i].stop(0); }catch(e){} }
   var src = ctx.createBufferSource(), vg = ctx.createGain();
-  src.buffer = buf; src.connect(vg); vg.connect(g); src.start(0);
+  src.buffer = buf; src.connect(vg); vg.connect(g);
+  /* Recorte: arranca en el punto de inicio y dura hasta el fin. Fundidos de 2 y 4 ms solo en los bordes cortados, para que no haga click */
+  var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
+  if(e - s < 0.001){ s = 0; e = dur; }
+  var t = ctx.currentTime, len = e - s;
+  if(s > 0){ vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(1, t + 0.002); }
+  if(e < dur - 0.0001 && len > 0.01){ vg.gain.setValueAtTime(1, t + len - 0.004); vg.gain.linearRampToValueAtTime(0, t + len); }
+  if(s > 0 || e < dur) src.start(0, s, len); else src.start(0);
   voices[i] = src;
   playing.push(src);
   src.onended = function(){ var k = playing.indexOf(src); if(k >= 0) playing.splice(k, 1); vg.disconnect(); };
@@ -534,7 +605,7 @@ function paintPad(i){
   el.style.setProperty("--c", (cell && cell.color) || COLORS[0]);
   el.querySelector(".lbl").textContent = cell ? (cell.label || "") : "";
   el.querySelector(".src").textContent = has ? (soundNames[cell.sound] || "…") : (mode === "edit" ? "vacío" : "");
-  var d = has ? wavePath(cell.sound) : "";
+  var d = has ? wavePath(cell.sound, cell.start, cell.end) : "";
   var path = el.querySelector(".wave path");
   if(path.getAttribute("d") !== d) path.setAttribute("d", d);
   el.classList.toggle("loading", !!(has && !buffers[cell.sound]));
@@ -542,24 +613,27 @@ function paintPad(i){
 
 /* Forma de onda resumida: 48 columnas de pico, calculadas una sola vez por sonido y dibujadas como SVG que escala con el pad */
 var waveCache = {};
-function wavePath(id){
-  if(id in waveCache) return waveCache[id];
+function wavePath(id, start, end){
   var buf = buffers[id]; if(!buf) return "";
-  var N = 48, len = buf.length, chs = buf.numberOfChannels, peaks = [], max = 0, ch = [];
+  var s0 = Math.max(0, Math.floor((start || 0)*buf.sampleRate)), e0 = end == null ? buf.length : Math.min(buf.length, Math.floor(end*buf.sampleRate));
+  if(e0 - s0 < 2){ s0 = 0; e0 = buf.length; }
+  var key = id + "|" + s0 + "|" + e0;
+  if(key in waveCache) return waveCache[key];
+  var N = 48, len = e0 - s0, chs = buf.numberOfChannels, peaks = [], max = 0, ch = [];
   for(var c=0;c<chs;c++) ch.push(buf.getChannelData(c));
   for(var i=0;i<N;i++){
-    var a = Math.floor(i*len/N), b = Math.max(a+1, Math.floor((i+1)*len/N)), stride = Math.max(1, Math.floor((b-a)/400)), p = 0;
+    var a = s0 + Math.floor(i*len/N), b = Math.max(a+1, s0 + Math.floor((i+1)*len/N)), stride = Math.max(1, Math.floor((b-a)/400)), p = 0;
     for(var c2=0;c2<chs;c2++){ var x = ch[c2]; for(var j=a;j<b;j+=stride){ var v = x[j]; if(v < 0) v = -v; if(v > p) p = v; } }
     peaks.push(p); if(p > max) max = p;
   }
-  if(max <= 0){ waveCache[id] = "M0 49H100V51H0Z"; return waveCache[id]; }
+  if(max <= 0){ waveCache[key] = "M0 49H100V51H0Z"; return waveCache[key]; }
   var top = [], bot = [];
   for(var k=0;k<N;k++){
     var h = Math.max(0.015, Math.sqrt(peaks[k]/max))*48, xk = (k/(N-1)*100).toFixed(1);
     top.push(xk + " " + (50-h).toFixed(1)); bot.unshift(xk + " " + (50+h).toFixed(1));
   }
-  waveCache[id] = "M" + top.join("L") + "L" + bot.join("L") + "Z";
-  return waveCache[id];
+  waveCache[key] = "M" + top.join("L") + "L" + bot.join("L") + "Z";
+  return waveCache[key];
 }
 
 /* entrada táctil: touchstart dispara el sonido antes que cualquier otra cosa */
@@ -666,6 +740,15 @@ function syncEditor(){
   document.getElementById("edChoke").checked = !!cell.choke;
   document.getElementById("edHold").checked = cell.hold !== false;
   document.getElementById("edPick").value = cell.sound || "";
+  var buf = cell.sound ? buffers[cell.sound] : null;
+  document.getElementById("edTrim").disabled = !buf;
+  var ti = document.getElementById("edTrimInfo");
+  if(buf){
+    var ts = cell.start || 0, te = cell.end == null ? buf.duration : Math.min(cell.end, buf.duration);
+    ti.textContent = (ts > 0 || te < buf.duration)
+      ? "Recorte " + fmtT(ts) + " → " + fmtT(te) + " · " + fmtT(te - ts) + " de " + fmtT(buf.duration)
+      : "Completo · " + fmtT(buf.duration);
+  } else ti.textContent = "";
   [].forEach.call(edColors.children, function(b){ b.setAttribute("aria-pressed", b.dataset.c === cell.color); });
   padGain(selected).gain.value = cell.gain == null ? 1 : cell.gain;
 }
@@ -684,7 +767,7 @@ function fillPicker(){
 }
 function assign(id){
   var i = selected, cell = cellFor(i);
-  cell.sound = id;
+  cell.sound = id; cell.start = null; cell.end = null;
   if(!cell.label) cell.label = (soundNames[id] || "").replace(/^Demo · /, "").replace(/\.[a-z0-9]+$/i, "").slice(0,24);
   return ensureSound(id).then(function(){ paintPad(i); syncEditor(); markDirty(); if(buffers[id]) trigger(i); });
 }
@@ -723,6 +806,315 @@ document.getElementById("edClear").onclick = function(){
   var i = selected; state.cells[i] = null; cellFor(i); paintPad(i); syncEditor(); markDirty();
 };
 document.getElementById("edClose").onclick = closeSheets;
+document.getElementById("edTrim").onclick = function(){ openTrim(selected); };
+
+/* ---------- recorte ---------- */
+function fmtT(sec){
+  if(!(sec >= 0)) sec = 0;
+  if(sec >= 60){ var m = Math.floor(sec/60), r = sec - m*60; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(3); }
+  return sec.toFixed(3) + " s";
+}
+/* Picos en bloques de 256 muestras, calculados una vez por sonido: dibujar un sample largo con zoom lejano no recorre millones de muestras */
+var BLK = 256, peakCache = {};
+function getPeaks(id, buf){
+  if(peakCache[id]) return peakCache[id];
+  var n = Math.ceil(buf.length/BLK), mn = new Float32Array(n), mx = new Float32Array(n), chs = [];
+  for(var c=0;c<buf.numberOfChannels;c++) chs.push(buf.getChannelData(c));
+  for(var b=0;b<n;b++){
+    var lo = 1, hi = -1, a = b*BLK, z = Math.min(buf.length, a + BLK);
+    for(var k=0;k<chs.length;k++){ var x = chs[k]; for(var j=a;j<z;j++){ var v = x[j]; if(v < lo) lo = v; if(v > hi) hi = v; } }
+    mn[b] = lo; mx[b] = hi;
+  }
+  return peakCache[id] = {mn:mn, mx:mx, chs:chs};
+}
+
+var T = {open:false, i:-1, id:null, buf:null, pk:null, sr:44100, len:0, s:0, e:0, vs:0, ve:0, prev:null,
+  dpr:1, mainCache:null, overCache:null, play:null, raf:0};
+var trEl = document.getElementById("trim"), cMain = document.getElementById("trMain"), cOver = document.getElementById("trOver");
+function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+function openTrim(i){
+  var cell = state.cells[i]; if(!cell || !cell.sound) return;
+  var buf = buffers[cell.sound]; if(!buf) return;
+  T.i = i; T.id = cell.sound; T.buf = buf; T.sr = buf.sampleRate; T.len = buf.length;
+  T.pk = getPeaks(cell.sound, buf);
+  T.prev = {start:cell.start == null ? null : cell.start, end:cell.end == null ? null : cell.end};
+  T.s = Math.max(0, Math.round((cell.start || 0)*T.sr));
+  T.e = cell.end == null ? T.len : Math.min(T.len, Math.round(cell.end*T.sr));
+  if(T.e - T.s < 2){ T.s = 0; T.e = T.len; }
+  T.color = cell.color || COLORS[0];
+  var r = Math.floor(i/MAX), c = i % MAX;
+  document.getElementById("trName").textContent = "Pad " + ROWS[r] + (c+1) + " · " + (soundNames[cell.sound] || "") + " · " + fmtT(buf.duration);
+  trEl.hidden = false; T.open = true;
+  sizeCanvases();
+  fitView(T.s, T.e, true);
+}
+function closeTrim(){
+  stopPreview(); trEl.hidden = true; T.open = false; T.mainCache = T.overCache = null;
+  syncEditor();
+}
+function commitTrim(){
+  var cell = state.cells[T.i]; if(!cell) return;
+  cell.start = T.s <= 0 ? null : T.s/T.sr;
+  cell.end = T.e >= T.len ? null : T.e/T.sr;
+  paintPad(T.i); markDirty();
+}
+document.getElementById("trDone").onclick = function(){ commitTrim(); closeTrim(); };
+document.getElementById("trCancel").onclick = function(){
+  var cell = state.cells[T.i];
+  if(cell){ cell.start = T.prev.start; cell.end = T.prev.end; paintPad(T.i); }
+  closeTrim();
+};
+
+function sizeCanvases(){
+  T.dpr = window.devicePixelRatio || 1;
+  [cMain, cOver].forEach(function(cv){
+    var w = Math.max(1, Math.round(cv.clientWidth*T.dpr)), h = Math.max(1, Math.round(cv.clientHeight*T.dpr));
+    if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  });
+  T.mainCache = null; T.overCache = null;
+}
+window.addEventListener("resize", function(){ if(T.open){ sizeCanvases(); renderAll(); } });
+
+/* Dibuja la forma de onda de [a,b) muestras en un canvas de w×h, como columnas mín/máx */
+function drawWave(g, w, h, a, b, color){
+  g.fillStyle = color;
+  var mid = h/2, amp = h/2 - 2, spp = (b - a)/w, mn = T.pk.mn, mx = T.pk.mx, chs = T.pk.chs;
+  for(var x=0;x<w;x++){
+    var s0 = a + x*spp, s1 = s0 + Math.max(spp, 1), lo = 1, hi = -1;
+    if(s0 >= T.len) break;
+    if(spp >= BLK*2){
+      var b0 = Math.floor(s0/BLK), b1 = Math.min(mn.length, Math.ceil(s1/BLK));
+      for(var k=b0;k<b1;k++){ if(mn[k] < lo) lo = mn[k]; if(mx[k] > hi) hi = mx[k]; }
+    } else {
+      var j0 = Math.max(0, Math.floor(s0)), j1 = Math.min(T.len, Math.ceil(s1));
+      for(var c=0;c<chs.length;c++){ var d = chs[c]; for(var j=j0;j<j1;j++){ var v = d[j]; if(v < lo) lo = v; if(v > hi) hi = v; } }
+    }
+    if(hi < lo) continue;
+    var y0 = mid - hi*amp, y1 = mid - lo*amp;
+    g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+  }
+}
+function offscreen(cv){ var o = document.createElement("canvas"); o.width = cv.width; o.height = cv.height; return o; }
+function renderAll(){
+  if(!T.open) return;
+  var col = T.color, line = cssVar("--line");
+  if(!T.overCache){
+    T.overCache = offscreen(cOver);
+    drawWave(T.overCache.getContext("2d"), cOver.width, cOver.height, 0, T.len, col);
+  }
+  if(!T.mainCache || T.mainCache.vs !== T.vs || T.mainCache.ve !== T.ve){
+    T.mainCache = offscreen(cMain); T.mainCache.vs = T.vs; T.mainCache.ve = T.ve;
+    var g = T.mainCache.getContext("2d");
+    g.fillStyle = line; g.fillRect(0, Math.floor(cMain.height/2), cMain.width, 1);
+    drawWave(g, cMain.width, cMain.height, T.vs, T.ve, col);
+  }
+  composite();
+}
+function xOf(sample){ return (sample - T.vs)/(T.ve - T.vs)*cMain.width; }
+function composite(){
+  var g = cMain.getContext("2d"), W = cMain.width, H = cMain.height, d = T.dpr;
+  var bg = cssVar("--bg"), acc = cssVar("--accent"), fg = cssVar("--fg");
+  g.clearRect(0, 0, W, H); g.drawImage(T.mainCache, 0, 0);
+  var xs = xOf(T.s), xe = xOf(T.e);
+  g.globalAlpha = .72; g.fillStyle = bg;
+  if(xs > 0) g.fillRect(0, 0, Math.min(W, xs), H);
+  if(xe < W) g.fillRect(Math.max(0, xe), 0, W - Math.max(0, xe), H);
+  g.globalAlpha = 1;
+  g.fillStyle = acc;
+  if(xs >= -20*d && xs <= W + 20*d){
+    g.fillRect(Math.round(xs) - d, 0, 2*d, H);
+    g.fillRect(Math.round(xs), 0, 18*d, 26*d);            // pestaña del inicio, arriba a la derecha
+    g.fillStyle = bg; g.font = "600 " + 13*d + "px " + cssVar("--f-ui"); g.textBaseline = "middle";
+    g.fillText("I", Math.round(xs) + 6*d, 13*d); g.fillStyle = acc;
+  }
+  if(xe >= -20*d && xe <= W + 20*d){
+    g.fillRect(Math.round(xe) - d, 0, 2*d, H);
+    g.fillRect(Math.round(xe) - 18*d, H - 26*d, 18*d, 26*d); // pestaña del fin, abajo a la izquierda
+    g.fillStyle = bg; g.font = "600 " + 13*d + "px " + cssVar("--f-ui"); g.textBaseline = "middle";
+    g.fillText("F", Math.round(xe) - 13*d, H - 13*d);
+  }
+  if(T.play){
+    var pos = T.s + (ctx.currentTime - T.play.t0)*T.sr;
+    var xp = xOf(pos); g.fillStyle = fg; g.fillRect(Math.round(xp), 0, d, H);
+  }
+  // vista general: recorte resaltado y ventana visible
+  var o = cOver.getContext("2d"), OW = cOver.width, OH = cOver.height;
+  o.clearRect(0, 0, OW, OH); o.drawImage(T.overCache, 0, 0);
+  var os = T.s/T.len*OW, oe = T.e/T.len*OW;
+  o.globalAlpha = .7; o.fillStyle = bg; o.fillRect(0, 0, os, OH); o.fillRect(oe, 0, OW - oe, OH); o.globalAlpha = 1;
+  var vx0 = T.vs/T.len*OW, vx1 = T.ve/T.len*OW;
+  o.strokeStyle = fg; o.lineWidth = 2*d; o.strokeRect(vx0 + d, d, Math.max(2*d, vx1 - vx0 - 2*d), OH - 2*d);
+  updateReadouts();
+}
+function stepSec(){ var span = (T.ve - T.vs)/T.sr; return span < 0.5 ? 0.001 : span < 5 ? 0.005 : span < 30 ? 0.02 : 0.1; }
+function updateReadouts(){
+  document.getElementById("trSo").textContent = fmtT(T.s/T.sr);
+  document.getElementById("trEo").textContent = fmtT(T.e/T.sr);
+  document.getElementById("trLen").textContent = fmtT((T.e - T.s)/T.sr);
+  document.getElementById("trStep").textContent = "paso ± " + Math.round(stepSec()*1000) + " ms";
+  document.getElementById("trRangeL").textContent = fmtT(T.vs/T.sr);
+  document.getElementById("trRangeR").textContent = fmtT(T.ve/T.sr);
+}
+
+/* vista */
+var MINSPAN = 64;
+function setView(vs, ve){
+  var span = Math.max(MINSPAN, Math.min(T.len, ve - vs));
+  vs = Math.max(0, Math.min(T.len - span, vs));
+  T.vs = vs; T.ve = vs + span;
+  renderAll();
+}
+function fitView(a, b, all){
+  if(all && a <= 0 && b >= T.len){ setView(0, T.len); return; }
+  var pad = Math.max(MINSPAN, (b - a)*0.08);
+  setView(a - pad, b + pad);
+}
+function zoomBy(f, centerSample){
+  var span = (T.ve - T.vs)*f, c = centerSample == null ? (T.vs + T.ve)/2 : centerSample;
+  var ratio = (c - T.vs)/(T.ve - T.vs);
+  setView(c - span*ratio, c - span*ratio + span);
+}
+document.getElementById("trAll").onclick = function(){ setView(0, T.len); };
+document.getElementById("trFit").onclick = function(){ fitView(T.s, T.e, false); };
+document.getElementById("trZi").onclick = function(){ zoomBy(0.5); };
+document.getElementById("trZo").onclick = function(){ zoomBy(2); };
+
+/* marcas */
+function snapZero(p){
+  if(!document.getElementById("trSnap").checked || p <= 0 || p >= T.len) return p;
+  var d = T.pk.chs[0], win = Math.round(0.002*T.sr), best = p, bestD = Infinity;
+  for(var k = Math.max(1, p - win); k < Math.min(T.len, p + win); k++){
+    if((d[k-1] <= 0 && d[k] > 0) || (d[k-1] >= 0 && d[k] < 0)){ var dd = Math.abs(k - p); if(dd < bestD){ bestD = dd; best = k; } }
+  }
+  return best;
+}
+var MINLEN = function(){ return Math.round(0.005*T.sr); };
+function setStart(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.s = Math.max(0, Math.min(p, T.e - MINLEN())); composite(); }
+function setEnd(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.e = Math.min(T.len, Math.max(p, T.s + MINLEN())); composite(); }
+function nudge(which, dir){
+  var st = Math.round(stepSec()*T.sr)*dir;
+  if(which === "s") setStart(T.s + st, false); else setEnd(T.e + st, false);
+  commitTrim(); keepVisible(which === "s" ? T.s : T.e);
+}
+function keepVisible(p){ var span = T.ve - T.vs; if(p < T.vs || p > T.ve) setView(p - span/2, p + span/2); }
+document.getElementById("trSm").onclick = function(){ nudge("s", -1); };
+document.getElementById("trSp").onclick = function(){ nudge("s", 1); };
+document.getElementById("trEm").onclick = function(){ nudge("e", -1); };
+document.getElementById("trEp").onclick = function(){ nudge("e", 1); };
+document.getElementById("trReset").onclick = function(){ T.s = 0; T.e = T.len; commitTrim(); setView(0, T.len); };
+
+/* Quitar silencio: corta antes del primer sonido y después del último, con umbral 40 dB por debajo del pico */
+document.getElementById("trAuto").onclick = function(){
+  var mn = T.pk.mn, mx = T.pk.mx, peak = 0, k;
+  for(k=0;k<mn.length;k++){ var a = Math.max(-mn[k], mx[k]); if(a > peak) peak = a; }
+  if(peak <= 0) return;
+  var thr = peak*0.01, first = -1, last = -1;
+  for(k=0;k<mn.length;k++){ if(Math.max(-mn[k], mx[k]) > thr){ first = k; break; } }
+  for(k=mn.length-1;k>=0;k--){ if(Math.max(-mn[k], mx[k]) > thr){ last = k; break; } }
+  if(first < 0) return;
+  var chs = T.pk.chs, s = first*BLK, z = Math.min(T.len, s + BLK);
+  outer: for(var j=s;j<z;j++){ for(var c=0;c<chs.length;c++){ if(Math.abs(chs[c][j]) > thr){ s = j; break outer; } } }
+  s = Math.max(0, s - Math.round(0.0005*T.sr));
+  var e = Math.min(T.len, (last + 1)*BLK + Math.round(0.02*T.sr));
+  T.s = s; T.e = Math.max(e, s + MINLEN());
+  commitTrim(); fitView(T.s, T.e, true);
+};
+
+/* reproducir con cursor */
+function stopPreview(){
+  if(T.play && T.play.v){ try{ T.play.v.src.stop(0); }catch(e){} }
+  T.play = null; cancelAnimationFrame(T.raf);
+  document.getElementById("trPlay").textContent = "Reproducir";
+}
+document.getElementById("trPlay").onclick = function(){
+  if(T.play){ stopPreview(); composite(); return; }
+  commitTrim(); unlock();
+  var v = trigger(T.i); if(!v) return;
+  T.play = {v:v, t0:ctx.currentTime, len:(T.e - T.s)/T.sr};
+  document.getElementById("trPlay").textContent = "Parar";
+  v.src.addEventListener("ended", function(){ if(T.play && T.play.v === v){ T.play = null; document.getElementById("trPlay").textContent = "Reproducir"; composite(); } });
+  (function tick(){
+    if(!T.play) return;
+    composite();
+    T.raf = requestAnimationFrame(tick);
+  })();
+};
+
+/* gestos en la forma de onda: arrastrar marcas, mover la vista, pellizcar para zoom */
+(function(){
+  var mode = null, sx = 0, svs = 0, pinch = null;
+  function cx(clientX){ var r = cMain.getBoundingClientRect(); return clientX - r.left; }
+  function sampleAt(x){ return T.vs + x/cMain.clientWidth*(T.ve - T.vs); }
+  function hit(x, y){
+    var d = T.dpr, xs = xOf(T.s)/d, xe = xOf(T.e)/d, ds = Math.abs(x - xs), de = Math.abs(x - xe), R = 26;
+    if(ds > R && de > R) return null;
+    if(ds <= R && de <= R) return y < cMain.clientHeight/2 ? "s" : "e";
+    return ds < de ? "s" : "e";
+  }
+  function begin(x, y){
+    mode = hit(x, y);
+    if(!mode){ mode = "pan"; sx = x; svs = T.vs; }
+  }
+  function moveTo(x){
+    if(mode === "s") setStart(sampleAt(x), false);
+    else if(mode === "e") setEnd(sampleAt(x), false);
+    else if(mode === "pan"){ var span = T.ve - T.vs; setView(svs - (x - sx)/cMain.clientWidth*span, svs - (x - sx)/cMain.clientWidth*span + span); }
+  }
+  function finish(){
+    if(mode === "s"){ setStart(T.s, true); commitTrim(); }
+    else if(mode === "e"){ setEnd(T.e, true); commitTrim(); }
+    mode = null;
+  }
+  function pinchStart(t0, t1){
+    var a = cx(t0.clientX), b = cx(t1.clientX);
+    pinch = {d:Math.max(20, Math.abs(b - a)), c:sampleAt((a + b)/2), cx:(a + b)/2, span:T.ve - T.vs};
+    mode = "pinch";
+  }
+  if("ontouchstart" in window){
+    cMain.addEventListener("touchstart", function(e){
+      e.preventDefault();
+      if(e.touches.length >= 2){ if(mode === "s" || mode === "e") finish(); pinchStart(e.touches[0], e.touches[1]); return; }
+      var t = e.touches[0]; var r = cMain.getBoundingClientRect(); begin(t.clientX - r.left, t.clientY - r.top);
+    }, {passive:false});
+    cMain.addEventListener("touchmove", function(e){
+      e.preventDefault();
+      if(mode === "pinch" && e.touches.length >= 2){
+        var a = cx(e.touches[0].clientX), b = cx(e.touches[1].clientX), d = Math.max(20, Math.abs(b - a));
+        var span = pinch.span*pinch.d/d, c = (a + b)/2, vs = pinch.c - c/cMain.clientWidth*span;
+        setView(vs, vs + span); return;
+      }
+      if(mode && mode !== "pinch") moveTo(cx(e.touches[0].clientX));
+    }, {passive:false});
+    var end = function(e){
+      if(mode === "pinch"){
+        if(e.touches.length === 1){ mode = "pan"; sx = cx(e.touches[0].clientX); svs = T.vs; } else if(!e.touches.length) mode = null;
+        return;
+      }
+      if(!e.touches.length) finish();
+    };
+    cMain.addEventListener("touchend", end); cMain.addEventListener("touchcancel", end);
+  } else {
+    cMain.addEventListener("pointerdown", function(e){ cMain.setPointerCapture(e.pointerId); var r = cMain.getBoundingClientRect(); begin(e.clientX - r.left, e.clientY - r.top); });
+    cMain.addEventListener("pointermove", function(e){ if(mode) moveTo(cx(e.clientX)); });
+    cMain.addEventListener("pointerup", finish);
+    cMain.addEventListener("wheel", function(e){ e.preventDefault(); zoomBy(e.deltaY > 0 ? 1.25 : 0.8, sampleAt(cx(e.clientX))); }, {passive:false});
+  }
+  /* vista general: tocar o arrastrar centra la vista en ese punto */
+  function overAt(clientX){
+    var r = cOver.getBoundingClientRect(), p = (clientX - r.left)/r.width*T.len, span = T.ve - T.vs;
+    setView(p - span/2, p + span/2);
+  }
+  if("ontouchstart" in window){
+    cOver.addEventListener("touchstart", function(e){ e.preventDefault(); overAt(e.touches[0].clientX); }, {passive:false});
+    cOver.addEventListener("touchmove", function(e){ e.preventDefault(); overAt(e.touches[0].clientX); }, {passive:false});
+  } else {
+    var od = false;
+    cOver.addEventListener("pointerdown", function(e){ od = true; cOver.setPointerCapture(e.pointerId); overAt(e.clientX); });
+    cOver.addEventListener("pointermove", function(e){ if(od) overAt(e.clientX); });
+    cOver.addEventListener("pointerup", function(){ od = false; });
+  }
+})();
 
 /* presets */
 function prMsg(t){ var m = document.getElementById("prMsg"); m.hidden = !t; m.textContent = t || ""; }
