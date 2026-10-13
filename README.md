@@ -21,7 +21,7 @@ Si abrís la app desde otra dirección que no sea `https://brunobellinvia.github
 
 ### Configurarlo en la app
 
-En **Editar**, tocá un pad → **Buscar sonido** → pegá la dirección del worker → **Guardar**. La app prueba la conexión antes de guardarla. Para cambiarla después, usá el botón **Proxy** de esa pantalla.
+En **Editar**, tocá un pad → **Buscar sonido** → La app ya viene configurada con `https://botonera-myinstants.brunebell8.workers.dev`. Si publicás el worker en otra dirección, cambiala con el botón **Proxy** de esa pantalla; la app prueba la conexión antes de guardarla.
 
 ### Uso
 
