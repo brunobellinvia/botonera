@@ -1,0 +1,4 @@
+# Para publicar desde la terminal: cd worker && npx wrangler deploy
+name = "botonera-myinstants"
+main = "myinstants-proxy.js"
+compatibility_date = "2026-01-01"

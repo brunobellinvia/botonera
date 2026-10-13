@@ -2,7 +2,35 @@
 
 Pad sampler táctil para iPad. Grilla de pads configurable de 1×1 a 12×12, un sonido por pad cargado desde Archivos, presets guardados en el dispositivo, fader de volumen general y botón Panic.
 
-Se instala como app desde Safari y funciona sin internet.
+Se instala como app desde Safari y funciona sin internet. Los sonidos se pueden recortar por pad y buscar en MyInstants (esto último necesita conexión).
+
+## Buscar sonidos en MyInstants
+
+MyInstants no permite que otras páginas lean sus búsquedas ni sus MP3, así que la app los pide a través de un intermediario propio: un Cloudflare Worker gratuito (`worker/myinstants-proxy.js`). Solo consulta páginas de búsqueda y archivos de sonido de myinstants.com, y solo atiende pedidos de esta app.
+
+### Publicar el worker (una sola vez)
+
+1. Creá una cuenta gratis en [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Entrá a **Workers & Pages → Create → Create Worker**. Ponele de nombre `botonera-myinstants` y tocá **Deploy**.
+3. Tocá **Edit code**, borrá todo el código de ejemplo, pegá el contenido de `worker/myinstants-proxy.js` y tocá **Deploy**.
+4. Copiá la dirección del worker. Tiene esta forma: `https://botonera-myinstants.TU-SUBDOMINIO.workers.dev`.
+
+Desde la terminal también se puede: `cd worker && npx wrangler deploy`.
+
+Si abrís la app desde otra dirección que no sea `https://brunobellinvia.github.io`, agregala a `ALLOWED_ORIGINS` al principio del worker.
+
+### Configurarlo en la app
+
+En **Editar**, tocá un pad → **Buscar sonido** → pegá la dirección del worker → **Guardar**. La app prueba la conexión antes de guardarla. Para cambiarla después, usá el botón **Proxy** de esa pantalla.
+
+### Uso
+
+- Buscá por texto. En inglés suele haber más resultados.
+- El círculo reproduce el sonido sin cargarlo; pasa por el fader master y suena aunque el iPad esté en silencio.
+- **Usar** baja el MP3, lo guarda en el iPad y lo asigna al pad. Desde ahí funciona sin conexión.
+- **Quitar silencio inicial al cargar** (activado de entrada) corta el silencio del principio del MP3 con un recorte no destructivo, que podés ajustar después en **Recortar**.
+
+Si MyInstants cambia el formato de sus páginas, la búsqueda deja de devolver resultados y hay que actualizar la función `parseResults` del worker.
 
 ## Publicar en GitHub Pages
 
