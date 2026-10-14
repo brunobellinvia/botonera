@@ -1,6 +1,6 @@
 # Botonera
 
-Pad sampler táctil para iPad. Grilla de pads configurable de 1×1 a 12×12, un sonido por pad cargado desde Archivos, presets guardados en el dispositivo, fader de volumen general y botón Panic.
+Pad sampler táctil para iPad. Grilla de pads configurable de 1×1 a 12×12, un sonido por pad cargado desde Archivos o desde MyInstants, recorte y fade out por pad, presets guardados en el dispositivo, volumen general con medidor de nivel (fader en tablet, knob en celular) y botón Panic.
 
 Se instala como app desde Safari y funciona sin internet. Los sonidos se pueden recortar por pad y buscar en MyInstants (esto último necesita conexión).
 
@@ -19,6 +19,10 @@ Desde la terminal también se puede: `cd worker && npx wrangler deploy`.
 
 Si abrís la app desde otra dirección que no sea `https://brunobellinvia.github.io`, agregala a `ALLOWED_ORIGINS` al principio del worker.
 
+### Actualizar el worker
+
+Cuando cambia `worker/myinstants-proxy.js`, hay que volver a publicarlo: en Cloudflare, **Workers & Pages → botonera-myinstants → Edit code**, reemplazá todo por el código nuevo y tocá **Deploy**. Los listados para explorar (Populares, Lo mejor, Recientes y categorías) necesitan la versión que tiene la ruta `/list`.
+
 ### Configurarlo en la app
 
 En **Editar**, tocá un pad → **Buscar sonido** → La app ya viene configurada con `https://botonera-myinstants.brunebell8.workers.dev`. Si publicás el worker en otra dirección, cambiala con el botón **Proxy** de esa pantalla; la app prueba la conexión antes de guardarla.
@@ -26,6 +30,7 @@ En **Editar**, tocá un pad → **Buscar sonido** → La app ya viene configurad
 ### Uso
 
 - Buscá por texto. En inglés suele haber más resultados.
+- Sin buscar, explorá con los listados de arriba: Populares y Lo mejor (de Argentina), Recientes y categorías. La × del buscador borra la búsqueda y vuelve a Populares.
 - El círculo reproduce el sonido sin cargarlo; pasa por el fader master y suena aunque el iPad esté en silencio.
 - **Usar** baja el MP3, lo guarda en el iPad y lo asigna al pad. Desde ahí funciona sin conexión.
 - **Quitar silencio inicial al cargar** (activado de entrada) corta el silencio del principio del MP3 con un recorte no destructivo, que podés ajustar después en **Recortar**.

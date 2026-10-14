@@ -7,9 +7,10 @@
    Rutas:
      GET /                          → {ok:true}  (para probar la conexión)
      GET /search?q=texto&page=1     → {results:[{title, path, url, slug}], page, hasMore}
+     GET /list?kind=trending&page=1 → mismo formato. kind: trending, best, recent o cat (con &cat=memes)
      GET /sound?path=/media/sounds/archivo.mp3  → el MP3
 
-   Solo pide páginas de búsqueda y archivos de /media/sounds/ de myinstants.com:
+   Solo pide páginas de búsqueda, los listados de arriba y archivos de /media/sounds/ de myinstants.com:
    no sirve como proxy abierto para otros sitios. */
 
 // Orígenes que pueden usar el worker. Agregá otros si abrís la app desde otra dirección.
@@ -19,6 +20,11 @@ const BASE = "https://www.myinstants.com";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
 const PAGE_SIZE = 36;
 const MAX_MP3_BYTES = 15 * 1024 * 1024;
+// País de los listados de populares y "lo mejor"
+const REGION = "ar";
+// Categorías que existen en MyInstants (las únicas que acepta /list?kind=cat)
+const CATEGORIES = ["anime & manga", "games", "memes", "movies", "music", "politics", "pranks", "reactions",
+  "sound effects", "sports", "television", "tiktok trends", "viral", "whatsapp audios"];
 
 export default {
   async fetch(req) {
@@ -34,6 +40,7 @@ export default {
     try {
       if (url.pathname === "/" || url.pathname === "") return json({ ok: true, service: "botonera-myinstants" }, 200, cors);
       if (url.pathname === "/search") return await search(url, cors);
+      if (url.pathname === "/list") return await list(url, cors);
       if (url.pathname === "/sound") return await sound(url, cors);
       return json({ error: "not_found" }, 404, cors);
     } catch (e) {
@@ -47,15 +54,32 @@ async function search(url, cors) {
   const page = clampInt(url.searchParams.get("page"), 1, 50, 1);
   if (!q) return json({ results: [], page, hasMore: false }, 200, cors);
 
-  const target = BASE + "/en/search/?name=" + encodeURIComponent(q) + (page > 1 ? "&page=" + page : "");
+  // MyInstants responde 404 cuando la búsqueda o la página no tienen resultados; fetchList lo devuelve como lista vacía
+  return await fetchList(BASE + "/en/search/?name=" + encodeURIComponent(q) + (page > 1 ? "&page=" + page : ""), page, cors);
+}
+
+async function list(url, cors) {
+  const kind = url.searchParams.get("kind") || "trending";
+  const page = clampInt(url.searchParams.get("page"), 1, 200, 1);
+  let path;
+  if (kind === "trending") path = "/en/trending/" + REGION + "/";
+  else if (kind === "best") path = "/en/best_of_all_time/" + REGION + "/";
+  else if (kind === "recent") path = "/en/recent/";
+  else if (kind === "cat") {
+    const cat = (url.searchParams.get("cat") || "").toLowerCase();
+    if (CATEGORIES.indexOf(cat) < 0) return json({ error: "bad_category" }, 400, cors);
+    path = "/en/categories/" + encodeURIComponent(cat) + "/" + REGION + "/";
+  } else return json({ error: "bad_kind" }, 400, cors);
+  return await fetchList(BASE + path + (page > 1 ? "?page=" + page : ""), page, cors);
+}
+
+async function fetchList(target, page, cors) {
   const r = await fetch(target, {
     headers: { "User-Agent": UA, "Accept": "text/html", "Accept-Language": "es-AR,es;q=0.9,en;q=0.8" },
     cf: { cacheTtl: 600, cacheEverything: true }
   });
-  // MyInstants responde 404 cuando la búsqueda o la página no tienen resultados
   if (r.status === 404) return json({ results: [], page, hasMore: false }, 200, cors);
   if (!r.ok) return json({ error: "upstream_status", status: r.status }, 502, cors);
-
   const results = parseResults(await r.text());
   return json({ results, page, hasMore: results.length >= PAGE_SIZE }, 200,
     Object.assign({ "Cache-Control": "public, max-age=600" }, cors));

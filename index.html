@@ -29,6 +29,11 @@
   --muted:#8d8f94;
   --accent:#e8a33d;
   --danger:#e2614b;
+  --play:#6fcf8e;       /* modo Tocar */
+  --edit:#8f9cf0;       /* modo Editar */
+  --edit-line:#5c648d;  /* mezcla de --edit y --line; iOS 15 no tiene color-mix */
+  --meter-ok:#6fcf8e;
+  --meter-warn:#e8a33d;
   --f-ui:"Barlow Condensed","Arial Narrow","Helvetica Neue",sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
   --gap:8px;
@@ -49,7 +54,12 @@ button{touch-action:manipulation}
 .dirty{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
 .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px}
 .seg button{border:0;background:none;padding:7px 16px;border-radius:6px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:14px;color:var(--muted);cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+/* cada modo tiene su color: verde para Tocar, azul lavanda para Editar */
+#modePlay{color:var(--play)}
+#modeEdit{color:var(--edit)}
+#modePlay[aria-pressed="true"]{background:var(--play);color:#0d1f13}
+#modeEdit[aria-pressed="true"]{background:var(--edit);color:#11152b}
+#modePlay:not([aria-pressed="true"]),#modeEdit:not([aria-pressed="true"]){opacity:.75}
 .btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:14px;cursor:pointer;white-space:nowrap}
 .btn:focus-visible,.seg button:focus-visible,.pad:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#1a1205}
@@ -59,7 +69,7 @@ button{touch-action:manipulation}
 .vol{display:flex;align-items:center;gap:8px}
 /* fader: 44 pt de alto (mínimo táctil de iOS); en el Air 2 son 88 px físicos a 2x */
 .fader{position:relative;width:clamp(200px,28vw,300px);height:44px;flex:none;touch-action:none;cursor:ew-resize;padding:0 15px}
-.fader:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.fader:focus-visible,.knob:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
 .ftrack{position:relative;height:100%}
 .ftrack::before{content:"";position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--line)}
 .ffill,.fhot{position:absolute;top:50%;height:6px;margin-top:-3px;border-radius:3px;left:0}
@@ -68,9 +78,36 @@ button{touch-action:manipulation}
 .tick{position:absolute;top:8px;bottom:8px;width:1px;background:var(--muted);opacity:.45}
 .tick.unity{opacity:1;background:var(--fg);top:5px;bottom:5px}
 .fthumb{position:absolute;top:4px;bottom:4px;width:30px;margin-left:-15px;border-radius:6px;background:var(--fg);
-  box-shadow:0 1px 0 rgba(0,0,0,.4)}
+  box-shadow:0 1px 0 rgba(0,0,0,.4);z-index:2}
 .fthumb::after{content:"";position:absolute;left:50%;top:7px;bottom:7px;width:2px;margin-left:-1px;background:var(--bg)}
 @media (max-width:820px){.fader{flex:1 1 200px;width:auto}}
+
+/* medidor: línea fina debajo del recorrido; escala de −48 a 0 dBFS, verde, ámbar desde −6 y rojo cerca de saturar */
+.meter{position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden;pointer-events:none}
+.fader .meter{top:calc(50% + 7px)}
+.meter i{position:absolute;top:0;bottom:0;left:0;width:100%;transform-origin:0 50%;transform:scaleX(0);background:var(--meter-ok)}
+.meter b{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;left:0;background:var(--meter-ok);opacity:0}
+.meter.warn i,.meter.warn b{background:var(--meter-warn)}
+.meter.clip i,.meter.clip b{background:var(--danger)}
+
+/* knob: reemplaza al fader en pantallas de celular */
+.knob{display:none;width:48px;height:48px;flex:none;touch-action:none;cursor:ns-resize;border-radius:50%}
+.knob svg{display:block;width:100%;height:100%;overflow:visible}
+.knob .k-track{fill:none;stroke:var(--line);stroke-width:4;stroke-linecap:round}
+.knob .k-fill{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round}
+.knob .k-hot{fill:none;stroke:var(--danger);stroke-width:4;stroke-linecap:round}
+.knob .k-meter{fill:none;stroke:var(--meter-ok);stroke-width:2;stroke-linecap:round}
+.knob .k-meter.warn{stroke:var(--meter-warn)}
+.knob .k-meter.clip{stroke:var(--danger)}
+.knob .k-cap{fill:var(--pad);stroke:var(--line);stroke-width:1}
+.knob .k-ptr{stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+@media (max-width:600px), (max-height:500px){
+  .vol .fader{display:none}
+  .vol .knob{display:block}
+}
+/* medidor del volumen de cada pad, en el editor */
+.pmeter{position:relative;height:3px;margin-top:-4px}
+.pmeter .meter{position:absolute;inset:0;height:3px}
 /* ancho fijo: el valor cambia de largo (−∞, −4.2, +6.0) y no tiene que empujar el resto de la barra */
 .vol output{font-family:var(--f-mono);font-size:13px;width:9ch;flex:none;white-space:nowrap;overflow:hidden;text-align:right;font-variant-numeric:tabular-nums;line-height:1.2}
 .vol output small{display:block;font-family:var(--f-ui);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
@@ -103,9 +140,11 @@ button{touch-action:manipulation}
 .pad.hit .wave{fill:#121212;opacity:.3}
 .pad .lbl{z-index:1}
 .editing .pad .wave{top:32px;height:calc(100% - 64px)}
-.editing .pad{box-shadow:inset 0 0 0 1px var(--line)}
+.editing .pad{box-shadow:inset 0 0 0 1px var(--edit-line)}
 .editing .pad .src{display:block}
-.editing .pad.empty{background:transparent;box-shadow:inset 0 0 0 1px var(--line);outline:1px dashed var(--line);outline-offset:-6px}
+.editing .pad.empty{background:transparent;box-shadow:inset 0 0 0 1px var(--line);outline:1px dashed var(--edit-line);outline-offset:-6px}
+/* en Editar, la barra de grilla lleva una línea del color del modo */
+.gridbar{border-left:3px solid var(--edit);padding-left:10px}
 .pad.sel{box-shadow:inset 0 0 0 2px var(--accent)}
 .pad.loading .lbl{opacity:.4}
 
@@ -158,6 +197,16 @@ button{touch-action:manipulation}
 
 /* búsqueda: misma pantalla completa que el recorte; lista con preescucha y botón para cargar al pad */
 .search{z-index:21}
+.search .trim-head{flex-wrap:wrap}
+.se-input{position:relative;flex:1;min-width:0;display:flex}
+.se-input .txt{padding-right:48px}
+.se-clear{position:absolute;right:0;top:0;bottom:0;width:46px;border:0;background:none;cursor:pointer;display:grid;place-items:center}
+.se-clear::before{content:"×";width:22px;height:22px;border-radius:50%;background:var(--muted);color:var(--bg);
+  font-size:19px;font-weight:700;line-height:21px;text-align:center}
+.se-chips{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;scrollbar-width:none}
+.se-chips::-webkit-scrollbar{display:none}
+.chip{flex:none;min-height:36px;padding:6px 14px;border-radius:18px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:15px;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .se-row{display:flex;gap:8px;align-items:center}
 .se-row .txt{flex:1;min-width:0}
 .se-cfg{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
@@ -214,20 +263,7 @@ body{margin:0}
       <button id="modePlay" aria-pressed="true">Tocar</button>
       <button id="modeEdit" aria-pressed="false">Editar</button>
     </div>
-    <div class="vol">
-      <div class="fader" id="fader" role="slider" tabindex="0" aria-label="Volumen general" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0.708">
-        <div class="ftrack" id="fTrack">
-          <div class="ffill" id="fFill"></div>
-          <div class="fhot" id="fHot"></div>
-          <span class="tick" data-db="-30"></span>
-          <span class="tick" data-db="-20"></span>
-          <span class="tick" data-db="-10"></span>
-          <span class="tick unity" data-db="0"></span>
-          <div class="fthumb" id="fThumb"></div>
-        </div>
-      </div>
-      <output id="volOut"><small>Master</small>0.0 dB</output>
-    </div>
+    <div class="vol" data-master></div>
     <button class="panic" id="panic">Panic</button>
     <button class="btn" id="presetsBtn">Presets</button>
   </div>
@@ -258,7 +294,8 @@ body{margin:0}
   </div>
   <label class="field"><span>Nombre del pad</span><input class="txt" id="edLabel" maxlength="24" autocomplete="off"></label>
   <div class="field"><span>Color</span><div class="swatches" id="edColors"></div></div>
-  <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="150" step="1"><span class="val" id="edGainOut">100%</span></div></div>
+  <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="150" step="1"><span class="val" id="edGainOut">100%</span></div>
+    <div class="pmeter" aria-hidden="true"><div class="meter" id="padMeter"><i></i><b></b></div></div></div>
   <label class="check"><input type="checkbox" id="edHold"> Si lo mantengo, corta al soltar</label>
   <label class="check"><input type="checkbox" id="edChoke"> Cortar el sonido anterior al volver a tocar</label>
   <div class="row"><button class="btn warn" id="edClear">Vaciar pad</button></div>
@@ -300,6 +337,11 @@ body{margin:0}
       <button class="nud" id="trSp" aria-label="Mover inicio adelante">+</button>
     </div>
     <div class="mark mid"><span class="mlabel">Duración</span><output id="trLen"></output><small id="trStep"></small></div>
+    <div class="mark"><span class="mlabel">Fade out</span>
+      <button class="nud" id="trFm" aria-label="Fade out más corto">−</button>
+      <output id="trFo"></output>
+      <button class="nud" id="trFp" aria-label="Fade out más largo">+</button>
+    </div>
     <div class="mark"><span class="mlabel">Fin</span>
       <button class="nud" id="trEm" aria-label="Mover fin atrás">−</button>
       <output id="trEo"></output>
@@ -316,13 +358,14 @@ body{margin:0}
     <button class="btn warn" id="trReset">Sin recorte</button>
     <label class="check small"><input type="checkbox" id="trSnap" checked> Ajustar a cruce por cero</label>
   </div>
-  <p class="foot trim-hint">Arrastrá las marcas para cortar. Un dedo mueve la vista, dos dedos hacen zoom. Tocá la barra de arriba para saltar a otra parte del sonido.</p>
+  <p class="foot trim-hint">Arrastrá las marcas para cortar. La marca FO define dónde empieza el fade out. Un dedo mueve la vista, dos dedos hacen zoom. Tocá la barra de arriba para saltar a otra parte del sonido.</p>
 </section>
 
 <section class="trim search" id="search" hidden aria-label="Buscar sonido">
   <header class="trim-head">
     <button class="btn" id="seClose">Cerrar</button>
     <div class="trim-title"><b>Buscar sonido</b><span id="sePad"></span></div>
+    <div class="vol" data-master></div>
     <button class="btn" id="seCfgBtn" aria-expanded="false">Proxy</button>
   </header>
   <div class="se-cfg" id="seCfg" hidden>
@@ -334,9 +377,13 @@ body{margin:0}
     <p class="msg" id="seCfgMsg" hidden></p>
   </div>
   <form class="se-row" id="seForm" autocomplete="off">
-    <input class="txt" id="seQ" type="search" enterkeyhint="search" autocapitalize="off" spellcheck="false" maxlength="80" placeholder="Ej.: aplausos, airhorn, bruh" aria-label="Texto a buscar">
+    <div class="se-input">
+      <input class="txt" id="seQ" type="text" enterkeyhint="search" autocapitalize="off" autocomplete="off" spellcheck="false" maxlength="80" placeholder="Ej.: aplausos, airhorn, bruh" aria-label="Texto a buscar">
+      <button type="button" class="se-clear" id="seClear" aria-label="Limpiar búsqueda" hidden></button>
+    </div>
     <button class="btn primary" id="seGo" type="submit">Buscar</button>
   </form>
+  <div class="se-chips" id="seChips" role="group" aria-label="Explorar MyInstants"></div>
   <div class="se-opts">
     <label class="check small"><input type="checkbox" id="seTrim" checked> Quitar silencio inicial al cargar</label>
     <span class="se-status" id="seMsg" role="status"></span>
@@ -357,7 +404,12 @@ var ctx;
 try { ctx = new AC({latencyHint:"interactive"}); } catch(e){ ctx = new AC(); }
 var master = ctx.createGain();       // pote de volumen general
 var panicGain = ctx.createGain();    // se usa solo para el fundido del panic
-master.connect(panicGain); panicGain.connect(ctx.destination);
+/* Medidores: el general mide la salida (después del fader); el del pad mide el pad abierto en el editor */
+var masterAn = ctx.createAnalyser(); masterAn.fftSize = 1024;
+master.connect(panicGain); panicGain.connect(masterAn); masterAn.connect(ctx.destination);
+var padAn = ctx.createAnalyser(); padAn.fftSize = 1024;
+var padSink = ctx.createGain(); padSink.gain.value = 0; padAn.connect(padSink); padSink.connect(ctx.destination);
+var padAnFrom = null;
 var playing = [];                    // todas las voces sonando
 var buffers = {};      // soundId -> AudioBuffer
 var soundNames = {};   // soundId -> nombre visible
@@ -376,27 +428,34 @@ function trigger(i){
   if(ctx.state !== "running") ctx.resume();
   var g = padGain(i);
   if(cell.choke && voices[i]){ try{ voices[i].stop(0); }catch(e){} }
-  var src = ctx.createBufferSource(), vg = ctx.createGain();
-  src.buffer = buf; src.connect(vg); vg.connect(g);
-  /* Recorte: arranca en el punto de inicio y dura hasta el fin. Fundidos de 2 y 4 ms solo en los bordes cortados, para que no haga click */
+  /* vg lleva la envolvente del recorte y el fade out; rg es solo para cortar al soltar, así no se pisan */
+  var src = ctx.createBufferSource(), vg = ctx.createGain(), rg = ctx.createGain();
+  src.buffer = buf; src.connect(vg); vg.connect(rg); rg.connect(g);
   var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
   if(e - s < 0.001){ s = 0; e = dur; }
   var t = ctx.currentTime, len = e - s;
-  if(s > 0){ vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(1, t + 0.002); }
-  if(e < dur - 0.0001 && len > 0.01){ vg.gain.setValueAtTime(1, t + len - 0.004); vg.gain.linearRampToValueAtTime(0, t + len); }
+  scheduleEnvelope(vg.gain, t, len, s > 0, e < dur - 0.0001, cell.fadeOut || 0);
   if(s > 0 || e < dur) src.start(0, s, len); else src.start(0);
   voices[i] = src;
   playing.push(src);
-  src.onended = function(){ var k = playing.indexOf(src); if(k >= 0) playing.splice(k, 1); vg.disconnect(); };
-  return {src:src, vg:vg};
+  src.onended = function(){ var k = playing.indexOf(src); if(k >= 0) playing.splice(k, 1); rg.disconnect(); };
+  return {src:src, vg:vg, rg:rg};
+}
+/* Envolvente de una voz: fundidos de 2 y 4 ms en los bordes cortados (para que no haga click) y fade out con curva de igual potencia */
+var FADE_CURVE = (function(){ var n = 128, c = new Float32Array(n); for(var k=0;k<n;k++) c[k] = Math.cos(k/(n-1)*Math.PI/2); c[n-1] = 0; return c; })();
+function fadeLen(fade, len){ return Math.max(0, Math.min(fade || 0, len - 0.003)); }
+function scheduleEnvelope(p, t, len, cutStart, cutEnd, fade){
+  if(cutStart){ p.setValueAtTime(0, t); p.linearRampToValueAtTime(1, t + 0.002); }
+  var fo = fadeLen(fade, len);
+  if(fo >= 0.005) p.setValueCurveAtTime(FADE_CURVE, t + len - fo, fo);
+  else if(cutEnd && len > 0.01){ p.setValueAtTime(1, t + len - 0.004); p.linearRampToValueAtTime(0, t + len); }
 }
 /* Mantener y soltar: si el dedo estuvo apoyado más de HOLD_MS, al soltar se corta con un fundido corto */
 var HOLD_MS = 250;
 function release(v){
   var t = ctx.currentTime;
-  v.vg.gain.cancelScheduledValues(t);
-  v.vg.gain.setValueAtTime(v.vg.gain.value, t);
-  v.vg.gain.linearRampToValueAtTime(0, t + 0.012);
+  v.rg.gain.setValueAtTime(1, t);
+  v.rg.gain.linearRampToValueAtTime(0, t + 0.012);
   try{ v.src.stop(t + 0.014); }catch(e){}
 }
 /* Panic: fundido de 15 ms para que no haga click y corte todas las voces */
@@ -419,52 +478,140 @@ function saveSettings(){
   }, 300);
 }
 
-/* Fader general: posición 0–1 con curva logarítmica. 0 = silencio, ~71% = 0 dB, tope = +6 dB */
+/* Volumen general: posición 0–1 con curva logarítmica. 0 = silencio, ~71% = 0 dB, tope = +6 dB.
+   Se dibuja en cada lugar marcado con data-master: fader en tablet, knob en celular, los dos con medidor */
 var UNITY = Math.pow(10, -6/40);
 var knobPos = UNITY;
 function posToDb(p){ return p <= 0 ? -Infinity : 6 + 40*Math.log(p)/Math.LN10; }
 function dbToPos(db){ return Math.pow(10, (db - 6)/40); }
-[].forEach.call(document.querySelectorAll("#fTrack .tick"), function(t){ t.style.left = (dbToPos(+t.dataset.db)*100).toFixed(2) + "%"; });
-var fFill = document.getElementById("fFill"), fHot = document.getElementById("fHot"), fThumb = document.getElementById("fThumb");
+var KA0 = -135, KA1 = 135;
+function arcPath(a0, a1, r){
+  var cx = 24, cy = 24;
+  function pt(a){ var rad = (a - 90)*Math.PI/180; return (cx + r*Math.cos(rad)).toFixed(2) + " " + (cy + r*Math.sin(rad)).toFixed(2); }
+  if(a1 - a0 < 0.5) return "";
+  return "M" + pt(a0) + " A" + r + " " + r + " 0 " + (a1 - a0 > 180 ? 1 : 0) + " 1 " + pt(a1);
+}
+var masters = [];
+function buildMaster(root){
+  root.innerHTML =
+    '<div class="fader" role="slider" tabindex="0" aria-label="Volumen general" aria-valuemin="0" aria-valuemax="1">' +
+      '<div class="ftrack"><div class="ffill"></div><div class="fhot"></div>' +
+        '<span class="tick" data-db="-30"></span><span class="tick" data-db="-20"></span><span class="tick" data-db="-10"></span><span class="tick unity" data-db="0"></span>' +
+        '<div class="meter"><i></i><b></b></div><div class="fthumb"></div></div></div>' +
+    '<div class="knob" role="slider" tabindex="0" aria-label="Volumen general" aria-valuemin="0" aria-valuemax="1">' +
+      '<svg viewBox="0 0 48 48" aria-hidden="true"><path class="k-meter"></path><path class="k-track"></path><path class="k-fill"></path><path class="k-hot"></path>' +
+        '<circle class="k-cap" cx="24" cy="24" r="13"></circle><line class="k-ptr" x1="24" y1="24" x2="24" y2="14"></line></svg></div>' +
+    '<output><small>Master</small>0.0 dB</output>';
+  var m = {root:root, fader:root.querySelector(".fader"), track:root.querySelector(".ftrack"), fill:root.querySelector(".ffill"),
+    hot:root.querySelector(".fhot"), thumb:root.querySelector(".fthumb"), knob:root.querySelector(".knob"),
+    kFill:root.querySelector(".k-fill"), kHot:root.querySelector(".k-hot"), kPtr:root.querySelector(".k-ptr"), kMeter:root.querySelector(".k-meter"),
+    out:root.querySelector("output"), meter:root.querySelector(".meter"), mLvl:null, mPk:null};
+  m.mLvl = m.meter.querySelector("i"); m.mPk = m.meter.querySelector("b");
+  root.querySelector(".k-track").setAttribute("d", arcPath(KA0, KA1, 18));
+  [].forEach.call(root.querySelectorAll(".tick"), function(t){ t.style.left = (dbToPos(+t.dataset.db)*100).toFixed(2) + "%"; });
+  m.hot.style.left = (UNITY*100).toFixed(2) + "%";
+  /* Arrastre relativo: tocar no salta al punto tocado, se mueve desde donde estaba. Doble toque vuelve a 0 dB */
+  var lastTap = 0;
+  function bindDrag(el, axis){
+    var sx = 0, sy = 0, sp = 0, drag = null, w = 1;
+    function down(x, y, id){
+      drag = id; sx = x; sy = y; sp = knobPos;
+      w = axis === "x" ? (m.track.getBoundingClientRect().width || 1) : 180;
+      var now = Date.now(); if(now - lastTap < 300){ setKnob(UNITY, true); drag = null; } lastTap = now;
+    }
+    function move(x, y){ setKnob(sp + (axis === "x" ? (x - sx) : ((x - sx) - (y - sy)))/w, true); }
+    if("ontouchstart" in window){
+      el.addEventListener("touchstart", function(e){ e.preventDefault(); var t = e.changedTouches[0]; down(t.clientX, t.clientY, t.identifier); }, {passive:false});
+      el.addEventListener("touchmove", function(e){ e.preventDefault();
+        for(var i=0;i<e.changedTouches.length;i++){ var t = e.changedTouches[i]; if(t.identifier === drag) move(t.clientX, t.clientY); } }, {passive:false});
+      el.addEventListener("touchend", function(){ drag = null; });
+      el.addEventListener("touchcancel", function(){ drag = null; });
+    } else {
+      el.addEventListener("pointerdown", function(e){ e.preventDefault(); el.setPointerCapture(e.pointerId); down(e.clientX, e.clientY, e.pointerId); });
+      el.addEventListener("pointermove", function(e){ if(drag === e.pointerId) move(e.clientX, e.clientY); });
+      el.addEventListener("pointerup", function(){ drag = null; });
+    }
+    el.addEventListener("keydown", function(e){
+      var d = {ArrowUp:.02, ArrowRight:.02, ArrowDown:-.02, ArrowLeft:-.02}[e.key];
+      if(d){ e.preventDefault(); setKnob(knobPos + d, true); }
+    });
+  }
+  bindDrag(m.fader, "x"); bindDrag(m.knob, "xy");
+  masters.push(m);
+  return m;
+}
+[].forEach.call(document.querySelectorAll("[data-master]"), buildMaster);
 function setKnob(p, save){
   knobPos = Math.max(0, Math.min(1, p));
   var db = posToDb(knobPos), lin = db === -Infinity ? 0 : Math.pow(10, db/20);
   master.gain.setTargetAtTime(lin, ctx.currentTime, 0.01);
-  var pc = knobPos*100;
-  fFill.style.width = Math.min(pc, UNITY*100).toFixed(2) + "%";
-  fHot.style.left = (UNITY*100).toFixed(2) + "%";
-  fHot.style.width = Math.max(0, pc - UNITY*100).toFixed(2) + "%";
-  fThumb.style.left = pc.toFixed(2) + "%";
-  var out = document.getElementById("volOut");
-  out.innerHTML = "<small>Master</small>" + (db === -Infinity ? "−∞ dB" : (db > 0.05 ? "+" : "") + db.toFixed(1).replace("-", "−") + " dB");
-  out.classList.toggle("over", db > 0.05);
-  var k = document.getElementById("fader");
-  k.setAttribute("aria-valuenow", knobPos.toFixed(3));
-  k.setAttribute("aria-valuetext", out.textContent.replace("Master", ""));
+  var pc = knobPos*100, txt = db === -Infinity ? "−∞ dB" : (db > 0.05 ? "+" : "") + db.toFixed(1).replace("-", "−") + " dB";
+  var a = KA0 + (KA1 - KA0)*knobPos, au = KA0 + (KA1 - KA0)*UNITY;
+  masters.forEach(function(m){
+    m.fill.style.width = Math.min(pc, UNITY*100).toFixed(2) + "%";
+    m.hot.style.width = Math.max(0, pc - UNITY*100).toFixed(2) + "%";
+    m.thumb.style.left = pc.toFixed(2) + "%";
+    m.kFill.setAttribute("d", arcPath(KA0, Math.min(a, au), 18));
+    m.kHot.setAttribute("d", a > au ? arcPath(au, a, 18) : "");
+    m.kPtr.setAttribute("transform", "rotate(" + a.toFixed(1) + " 24 24)");
+    m.out.innerHTML = "<small>Master</small>" + txt;
+    m.out.classList.toggle("over", db > 0.05);
+    [m.fader, m.knob].forEach(function(el){ el.setAttribute("aria-valuenow", knobPos.toFixed(3)); el.setAttribute("aria-valuetext", txt); });
+  });
   if(save){ settings.knob = knobPos; saveSettings(); }
 }
-(function(){
-  /* Arrastre relativo: tocar el fader no salta de golpe al punto tocado, se mueve desde donde estaba */
-  var k = document.getElementById("fader"), track = document.getElementById("fTrack");
-  var startX = 0, startP = 0, lastTap = 0, drag = null, w = 1;
-  function down(x, id){ drag = id; startX = x; startP = knobPos; w = track.getBoundingClientRect().width || 1;
-    var now = Date.now(); if(now - lastTap < 300){ setKnob(UNITY, true); drag = null; } lastTap = now; }
-  function move(x){ setKnob(startP + (x - startX)/w, true); }
-  if("ontouchstart" in window){
-    k.addEventListener("touchstart", function(e){ e.preventDefault(); var t = e.changedTouches[0]; down(t.clientX, t.identifier); }, {passive:false});
-    k.addEventListener("touchmove", function(e){ e.preventDefault();
-      for(var i=0;i<e.changedTouches.length;i++){ var t = e.changedTouches[i]; if(t.identifier === drag) move(t.clientX); } }, {passive:false});
-    k.addEventListener("touchend", function(){ drag = null; });
-    k.addEventListener("touchcancel", function(){ drag = null; });
-  } else {
-    k.addEventListener("pointerdown", function(e){ e.preventDefault(); k.setPointerCapture(e.pointerId); down(e.clientX, e.pointerId); });
-    k.addEventListener("pointermove", function(e){ if(drag === e.pointerId) move(e.clientX); });
-    k.addEventListener("pointerup", function(){ drag = null; });
-  }
-  k.addEventListener("keydown", function(e){
-    var d = {ArrowUp:.02, ArrowRight:.02, ArrowDown:-.02, ArrowLeft:-.02}[e.key];
-    if(d){ e.preventDefault(); setKnob(knobPos + d, true); }
+
+/* Medidores de nivel: pico con caída de 30 dB/s y marca de pico que se sostiene 1,2 s. Solo calculan mientras hay sonido */
+var M_FLOOR = -48;
+function makeLevel(an){ return {an:an, buf:new Float32Array(an.fftSize), bytes:new Uint8Array(an.fftSize), db:M_FLOOR, hold:M_FLOOR, holdT:0}; }
+var mLevel = makeLevel(masterAn), pLevel = makeLevel(padAn);
+function readPeak(L){
+  var p = 0, i, v;
+  if(L.an.getFloatTimeDomainData){ L.an.getFloatTimeDomainData(L.buf); for(i=0;i<L.buf.length;i++){ v = L.buf[i]; if(v < 0) v = -v; if(v > p) p = v; } }
+  else { L.an.getByteTimeDomainData(L.bytes); for(i=0;i<L.bytes.length;i++){ v = Math.abs(L.bytes[i] - 128)/128; if(v > p) p = v; } }
+  return p > 0 ? 20*Math.log(p)/Math.LN10 : -Infinity;
+}
+function stepLevel(L, dt, now){
+  var pk = readPeak(L);
+  L.db = Math.max(pk, L.db - 30*dt, M_FLOOR);
+  if(pk >= L.hold){ L.hold = pk; L.holdT = now; } else if(now - L.holdT > 1200){ L.hold = Math.max(M_FLOOR, L.hold - 60*dt); }
+}
+function levelFrac(db){ return Math.max(0, Math.min(1, (db - M_FLOOR)/(-M_FLOOR))); }
+function levelClass(db){ return db >= -0.5 ? "clip" : db >= -6 ? "warn" : ""; }
+function paintBar(meterEl, lvl, pk, L){
+  var f = levelFrac(L.db), h = levelFrac(L.hold);
+  lvl.style.transform = "scaleX(" + f.toFixed(3) + ")";
+  pk.style.left = (h*100).toFixed(1) + "%"; pk.style.opacity = L.hold > M_FLOOR + 1 ? "1" : "0";
+  meterEl.className = "meter " + levelClass(Math.max(L.db, L.hold));
+}
+var meterLast = 0, meterIdle = true;
+function meterTick(now){
+  requestAnimationFrame(meterTick);
+  var dt = meterLast ? Math.min(0.1, (now - meterLast)/1000) : 0.016; meterLast = now;
+  var active = playing.length > 0 || !!(typeof S !== "undefined" && S.audio) || !!(typeof T !== "undefined" && T.play);
+  if(!active && meterIdle) return;
+  stepLevel(mLevel, dt, now);
+  var edOpen = !document.getElementById("editor").hidden;
+  if(edOpen) stepLevel(pLevel, dt, now);
+  masters.forEach(function(m){
+    if(!m.root.offsetParent) return;   // no se ve: no se dibuja
+    paintBar(m.meter, m.mLvl, m.mPk, mLevel);
+    var fa = KA0 + (KA1 - KA0)*levelFrac(mLevel.db);
+    m.kMeter.setAttribute("d", mLevel.db > M_FLOOR + 0.5 ? arcPath(KA0, fa, 23) : "");
+    m.kMeter.setAttribute("class", "k-meter " + levelClass(Math.max(mLevel.db, mLevel.hold)));
   });
+  if(edOpen){ var pm = document.getElementById("padMeter"); paintBar(pm, pm.querySelector("i"), pm.querySelector("b"), pLevel); }
+  meterIdle = !active && mLevel.db <= M_FLOOR && mLevel.hold <= M_FLOOR && pLevel.db <= M_FLOOR && pLevel.hold <= M_FLOOR;
+}
+requestAnimationFrame(meterTick);
+function watchPad(i){
+  if(padAnFrom){ try{ padAnFrom.disconnect(padAn); }catch(e){} }
+  padAnFrom = i >= 0 ? padGain(i) : null;
+  if(padAnFrom) padAnFrom.connect(padAn);
+  pLevel.db = pLevel.hold = M_FLOOR;
+}
+
+(function(){
   var pb = document.getElementById("panic");
   function hit(e){ e.preventDefault(); panic(); pb.classList.add("hit"); setTimeout(function(){ pb.classList.remove("hit"); }, 150); }
   if("ontouchstart" in window) pb.addEventListener("touchstart", hit, {passive:false});
@@ -662,7 +809,7 @@ function paintPad(i){
   el.style.setProperty("--c", (cell && cell.color) || COLORS[0]);
   el.querySelector(".lbl").textContent = cell ? (cell.label || "") : "";
   el.querySelector(".src").textContent = has ? (soundNames[cell.sound] || "…") : (mode === "edit" ? "vacío" : "");
-  var d = has ? wavePath(cell.sound, cell.start, cell.end) : "";
+  var d = has ? wavePath(cell.sound, cell.start, cell.end, cell.fadeOut) : "";
   var path = el.querySelector(".wave path");
   if(path.getAttribute("d") !== d) path.setAttribute("d", d);
   el.classList.toggle("loading", !!(has && !buffers[cell.sound]));
@@ -670,11 +817,12 @@ function paintPad(i){
 
 /* Forma de onda resumida: 48 columnas de pico, calculadas una sola vez por sonido y dibujadas como SVG que escala con el pad */
 var waveCache = {};
-function wavePath(id, start, end){
+function wavePath(id, start, end, fade){
   var buf = buffers[id]; if(!buf) return "";
   var s0 = Math.max(0, Math.floor((start || 0)*buf.sampleRate)), e0 = end == null ? buf.length : Math.min(buf.length, Math.floor(end*buf.sampleRate));
   if(e0 - s0 < 2){ s0 = 0; e0 = buf.length; }
-  var key = id + "|" + s0 + "|" + e0;
+  var lenSec = (e0 - s0)/buf.sampleRate, fo = fadeLen(fade, lenSec); if(fo < 0.005) fo = 0;
+  var key = id + "|" + s0 + "|" + e0 + "|" + fo.toFixed(3);
   if(key in waveCache) return waveCache[key];
   var N = 48, len = e0 - s0, chs = buf.numberOfChannels, peaks = [], max = 0, ch = [];
   for(var c=0;c<chs;c++) ch.push(buf.getChannelData(c));
@@ -686,7 +834,8 @@ function wavePath(id, start, end){
   if(max <= 0){ waveCache[key] = "M0 49H100V51H0Z"; return waveCache[key]; }
   var top = [], bot = [];
   for(var k=0;k<N;k++){
-    var h = Math.max(0.015, Math.sqrt(peaks[k]/max))*48, xk = (k/(N-1)*100).toFixed(1);
+    var tk = (k + 0.5)/N*lenSec, env = fo && tk > lenSec - fo ? Math.cos(Math.min(1, (tk - (lenSec - fo))/fo)*Math.PI/2) : 1;
+    var h = Math.max(0.015, Math.sqrt(peaks[k]*env/max))*48, xk = (k/(N-1)*100).toFixed(1);
     top.push(xk + " " + (50-h).toFixed(1)); bot.unshift(xk + " " + (50+h).toFixed(1));
   }
   waveCache[key] = "M" + top.join("L") + "L" + bot.join("L") + "Z";
@@ -760,6 +909,7 @@ function openSheet(id){ scrim.hidden = false; document.getElementById(id).hidden
 function closeSheets(){
   scrim.hidden = true; document.getElementById("editor").hidden = true; document.getElementById("presets").hidden = true;
   var prev = selected; selected = -1; if(prev >= 0) paintPad(prev);
+  watchPad(-1);
 }
 scrim.onclick = closeSheets;
 
@@ -783,6 +933,7 @@ function openEditor(i){
   document.getElementById("edTitle").textContent = "Pad " + ROWS[r] + (c+1);
   fillPicker().then(syncEditor);
   syncEditor();
+  watchPad(i);
   openSheet("editor");
 }
 function syncEditor(){
@@ -802,9 +953,10 @@ function syncEditor(){
   var ti = document.getElementById("edTrimInfo");
   if(buf){
     var ts = cell.start || 0, te = cell.end == null ? buf.duration : Math.min(cell.end, buf.duration);
-    ti.textContent = (ts > 0 || te < buf.duration)
+    var fo = fadeLen(cell.fadeOut, te - ts);
+    ti.textContent = ((ts > 0 || te < buf.duration)
       ? "Recorte " + fmtT(ts) + " → " + fmtT(te) + " · " + fmtT(te - ts) + " de " + fmtT(buf.duration)
-      : "Completo · " + fmtT(buf.duration);
+      : "Completo · " + fmtT(buf.duration)) + (fo >= 0.005 ? " · fade out " + fmtT(fo) : "");
   } else ti.textContent = "";
   [].forEach.call(edColors.children, function(b){ b.setAttribute("aria-pressed", b.dataset.c === cell.color); });
   padGain(selected).gain.value = cell.gain == null ? 1 : cell.gain;
@@ -887,7 +1039,18 @@ document.getElementById("edClose").onclick = closeSheets;
 document.getElementById("edTrim").onclick = function(){ openTrim(selected); };
 
 /* ---------- buscar en MyInstants (a través del proxy de Cloudflare) ---------- */
-var S = {q:"", page:0, more:false, busy:false, results:[], audio:null, playing:null, req:0};
+var S = {src:null, page:0, more:false, busy:false, results:[], audio:null, playing:null, req:0};
+/* Listados para explorar sin buscar. Populares y Lo mejor son de Argentina */
+var BROWSE = [
+  {kind:"trending", label:"Populares"}, {kind:"best", label:"Lo mejor"}, {kind:"recent", label:"Recientes"},
+  {kind:"cat", cat:"sound effects", label:"Efectos"}, {kind:"cat", cat:"memes", label:"Memes"},
+  {kind:"cat", cat:"reactions", label:"Reacciones"}, {kind:"cat", cat:"music", label:"Música"},
+  {kind:"cat", cat:"games", label:"Juegos"}, {kind:"cat", cat:"movies", label:"Películas"},
+  {kind:"cat", cat:"television", label:"TV"}, {kind:"cat", cat:"viral", label:"Virales"},
+  {kind:"cat", cat:"tiktok trends", label:"TikTok"}, {kind:"cat", cat:"whatsapp audios", label:"WhatsApp"},
+  {kind:"cat", cat:"sports", label:"Deportes"}, {kind:"cat", cat:"anime & manga", label:"Anime"},
+  {kind:"cat", cat:"pranks", label:"Bromas"}, {kind:"cat", cat:"politics", label:"Política"}
+];
 var seEl = document.getElementById("search"), seList = document.getElementById("seList");
 var bytesCache = {}, bytesOrder = [];
 function proxyBase(){ return (settings.proxy || "").trim().replace(/\/+$/, ""); }
@@ -905,9 +1068,26 @@ function openSearch(i){
   seEl.hidden = false;
   cfgMsg("");
   showCfg(!proxyBase());
-  renderResults();
-  try{ document.getElementById(proxyBase() ? "seQ" : "seProxy").focus(); }catch(e){}
+  renderChips(); renderResults();
+  if(!S.src && proxyBase()) load(BROWSE[0], 1);
+  else if(!proxyBase()){ try{ document.getElementById("seProxy").focus(); }catch(e){} }
 }
+function renderChips(){
+  var box = document.getElementById("seChips"); box.textContent = "";
+  BROWSE.forEach(function(b){
+    var c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.textContent = b.label;
+    c.setAttribute("aria-pressed", S.src === b ? "true" : "false");
+    c.onclick = function(){ setQuery(""); load(b, 1); };
+    box.appendChild(c);
+  });
+}
+function setQuery(v){
+  var inp = document.getElementById("seQ"); inp.value = v;
+  document.getElementById("seClear").hidden = !v;
+}
+document.getElementById("seQ").addEventListener("input", function(e){ document.getElementById("seClear").hidden = !e.target.value; });
+/* Limpiar: borra la búsqueda y vuelve a los populares */
+document.getElementById("seClear").onclick = function(){ setQuery(""); load(BROWSE[0], 1); };
 function closeSearch(){ stopPrev(); seEl.hidden = true; syncEditor(); }
 document.getElementById("edSearch").onclick = function(){ openSearch(selected); };
 document.getElementById("seClose").onclick = closeSearch;
@@ -917,6 +1097,7 @@ function errText(e){
   var m = (e && e.message) || "";
   if(m === "noproxy") return "Configurá el proxy para buscar.";
   if(m === "status:403") return "El proxy rechazó el pedido: falta esta dirección en ALLOWED_ORIGINS del worker.";
+  if(m === "status:404") return "Para ver los listados hay que actualizar el worker en Cloudflare con el código nuevo del repo.";
   if(/^status:5/.test(m)) return "MyInstants no respondió. Probá de nuevo en un rato.";
   if(navigator.onLine === false) return "Sin conexión. La búsqueda necesita internet.";
   return "No se pudo conectar con el proxy. Revisá la dirección en Proxy.";
@@ -939,29 +1120,35 @@ function getBytes(r){
   });
 }
 
-function doSearch(q, page){
-  q = (q || "").trim(); if(!q) return;
+/* src es una búsqueda {q} o un listado de BROWSE {kind, cat, label} */
+function srcLabel(src){
+  if(src.q != null) return "“" + src.q + "”";
+  return src.label + (src.kind === "trending" || src.kind === "best" ? " en Argentina" : "");
+}
+function load(src, page){
   if(!proxyBase()){ showCfg(true); cfgMsg("Primero pegá la dirección del proxy.", false); return; }
   if(navigator.onLine === false){ seStatus("Sin conexión. La búsqueda necesita internet.", true); return; }
   var my = ++S.req; S.busy = true;
-  if(page === 1){ S.q = q; S.results = []; S.more = false; stopPrev(); seList.scrollTop = 0; }
-  seStatus(page === 1 ? "Buscando “" + q + "”…" : "Cargando más…");
+  if(page === 1){ S.src = src; S.results = []; S.more = false; stopPrev(); seList.scrollTop = 0; renderChips(); }
+  seStatus(page > 1 ? "Cargando más…" : src.q != null ? "Buscando “" + src.q + "”…" : "Cargando " + srcLabel(src) + "…");
   renderResults();
-  apiJSON("/search?q=" + encodeURIComponent(q) + "&page=" + page).then(function(d){
+  var path = src.q != null ? "/search?q=" + encodeURIComponent(src.q)
+    : "/list?kind=" + src.kind + (src.cat ? "&cat=" + encodeURIComponent(src.cat) : "");
+  apiJSON(path + "&page=" + page).then(function(d){
     if(my !== S.req) return;
     var known = {}; S.results.forEach(function(r){ known[r.path] = 1; });
     (d.results || []).forEach(function(r){ if(r && r.path && !known[r.path]){ S.results.push(r); known[r.path] = 1; } });
     S.page = page; S.more = !!d.hasMore;
     var n = S.results.length;
-    seStatus(n ? n + " resultado" + (n === 1 ? "" : "s") + " para “" + q + "”" : "");
+    seStatus(!n ? "" : src.q != null ? n + " resultado" + (n === 1 ? "" : "s") + " para " + srcLabel(src) : n + " sonidos · " + srcLabel(src));
   }).catch(function(e){
     if(my === S.req) seStatus(errText(e), true);
   }).then(function(){ if(my === S.req){ S.busy = false; renderResults(); } });
 }
 document.getElementById("seForm").addEventListener("submit", function(e){
   e.preventDefault();
-  var inp = document.getElementById("seQ"); inp.blur();
-  doSearch(inp.value, 1);
+  var inp = document.getElementById("seQ"), q = inp.value.trim(); inp.blur();
+  if(q) load({q:q}, 1); else load(BROWSE[0], 1);
 });
 
 function renderResults(){
@@ -971,8 +1158,9 @@ function renderResults(){
     if(!S.busy){
       var p = document.createElement("p"); p.className = "se-empty";
       p.textContent = !proxyBase() ? "Para buscar hace falta configurar el proxy una sola vez. Las instrucciones están en el README del repositorio."
-        : S.q ? "No hay resultados para “" + S.q + "”. Probá con otras palabras; en inglés suele haber más."
-        : "Escribí qué sonido buscás. Tocá el círculo para escucharlo y Usar para cargarlo en el pad.";
+        : S.src && S.src.q != null ? "No hay resultados para “" + S.src.q + "”. Probá con otras palabras; en inglés suele haber más."
+        : S.src ? "No hay sonidos en este listado."
+        : "Escribí qué sonido buscás o elegí un listado. Tocá el círculo para escucharlo y Usar para cargarlo en el pad.";
       seList.appendChild(p);
     }
     return;
@@ -981,7 +1169,7 @@ function renderResults(){
   if(S.more || (S.busy && S.page >= 1)){
     var w = document.createElement("div"); w.className = "se-more";
     var b = document.createElement("button"); b.className = "btn"; b.textContent = S.busy ? "Cargando…" : "Cargar más"; b.disabled = S.busy;
-    b.onclick = function(){ doSearch(S.q, S.page + 1); };
+    b.onclick = function(){ load(S.src, S.page + 1); };
     w.appendChild(b); seList.appendChild(w);
   }
   seList.scrollTop = top;
@@ -1096,10 +1284,11 @@ function openTrim(i){
   var buf = buffers[cell.sound]; if(!buf) return;
   T.i = i; T.id = cell.sound; T.buf = buf; T.sr = buf.sampleRate; T.len = buf.length;
   T.pk = getPeaks(cell.sound, buf);
-  T.prev = {start:cell.start == null ? null : cell.start, end:cell.end == null ? null : cell.end};
+  T.prev = {start:cell.start == null ? null : cell.start, end:cell.end == null ? null : cell.end, fadeOut:cell.fadeOut == null ? null : cell.fadeOut};
   T.s = Math.max(0, Math.round((cell.start || 0)*T.sr));
   T.e = cell.end == null ? T.len : Math.min(T.len, Math.round(cell.end*T.sr));
   if(T.e - T.s < 2){ T.s = 0; T.e = T.len; }
+  T.f = Math.max(0, Math.round((cell.fadeOut || 0)*T.sr)); clampFade();
   T.color = cell.color || COLORS[0];
   var r = Math.floor(i/MAX), c = i % MAX;
   document.getElementById("trName").textContent = "Pad " + ROWS[r] + (c+1) + " · " + (soundNames[cell.sound] || "") + " · " + fmtT(buf.duration);
@@ -1115,12 +1304,13 @@ function commitTrim(){
   var cell = state.cells[T.i]; if(!cell) return;
   cell.start = T.s <= 0 ? null : T.s/T.sr;
   cell.end = T.e >= T.len ? null : T.e/T.sr;
+  cell.fadeOut = T.f > 0 ? T.f/T.sr : null;
   paintPad(T.i); markDirty();
 }
 document.getElementById("trDone").onclick = function(){ commitTrim(); closeTrim(); };
 document.getElementById("trCancel").onclick = function(){
   var cell = state.cells[T.i];
-  if(cell){ cell.start = T.prev.start; cell.end = T.prev.end; paintPad(T.i); }
+  if(cell){ cell.start = T.prev.start; cell.end = T.prev.end; cell.fadeOut = T.prev.fadeOut; paintPad(T.i); }
   closeTrim();
 };
 
@@ -1192,6 +1382,39 @@ function composite(){
     g.fillStyle = bg; g.font = "600 " + 13*d + "px " + cssVar("--f-ui"); g.textBaseline = "middle";
     g.fillText("F", Math.round(xe) - 13*d, H - 13*d);
   }
+  if(T.f > 0){
+    var fs = T.e - T.f, xf = xOf(fs), mid = H/2, amp = H/2 - 2, edit = cssVar("--edit");
+    var x0 = Math.max(0, xf), x1 = Math.min(W, xe), up = [], dn = [];
+    for(var x = x0; x <= x1 + 0.5; x += 2*d){
+      var xx = Math.min(x, x1), smp = T.vs + xx/W*(T.ve - T.vs), gk = Math.cos(Math.max(0, Math.min(1, (smp - fs)/T.f))*Math.PI/2);
+      up.push([xx, mid - gk*amp]); dn.push([xx, mid + gk*amp]);
+    }
+    if(up.length > 1){
+      g.globalAlpha = .6; g.fillStyle = bg;
+      g.beginPath(); g.moveTo(up[0][0], 0); up.forEach(function(q){ g.lineTo(q[0], q[1]); }); g.lineTo(up[up.length-1][0], 0); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(dn[0][0], H); dn.forEach(function(q){ g.lineTo(q[0], q[1]); }); g.lineTo(dn[dn.length-1][0], H); g.closePath(); g.fill();
+      g.globalAlpha = 1; g.strokeStyle = edit; g.lineWidth = 1.5*d;
+      g.beginPath(); up.forEach(function(q, k){ k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.stroke();
+      g.beginPath(); dn.forEach(function(q, k){ k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.stroke();
+    }
+  }
+  if(T.f > 0 && xe >= -20*d && xe <= W + 20*d){   // la marca de fin queda por encima del sombreado del fade
+    g.fillStyle = acc;
+    g.fillRect(Math.round(xe) - d, 0, 2*d, H);
+    g.fillRect(Math.round(xe) - 18*d, H - 26*d, 18*d, 26*d);
+    g.fillStyle = bg; g.font = "600 " + 13*d + "px " + cssVar("--f-ui"); g.textBaseline = "middle";
+    g.fillText("F", Math.round(xe) - 13*d, H - 13*d);
+  }
+  if(T.e > T.s){
+    var xf2 = xOf(T.e - T.f);
+    if(xf2 >= -30*d && xf2 <= W + 30*d){
+      g.fillStyle = cssVar("--edit");
+      g.fillRect(Math.round(xf2) - d/2, 30*d, d, H - 60*d);
+      g.fillRect(Math.round(xf2), 30*d, 26*d, 22*d);              // pestaña FO, debajo de la de inicio
+      g.fillStyle = bg; g.font = "600 " + 12*d + "px " + cssVar("--f-ui"); g.textBaseline = "middle";
+      g.fillText("FO", Math.round(xf2) + 5*d, 41*d);
+    }
+  }
   if(T.play){
     var pos = T.s + (ctx.currentTime - T.play.t0)*T.sr;
     var xp = xOf(pos); g.fillStyle = fg; g.fillRect(Math.round(xp), 0, d, H);
@@ -1210,6 +1433,7 @@ function updateReadouts(){
   document.getElementById("trSo").textContent = fmtT(T.s/T.sr);
   document.getElementById("trEo").textContent = fmtT(T.e/T.sr);
   document.getElementById("trLen").textContent = fmtT((T.e - T.s)/T.sr);
+  document.getElementById("trFo").textContent = T.f > 0 ? fmtT(T.f/T.sr) : "sin fade";
   document.getElementById("trStep").textContent = "paso ± " + Math.round(stepSec()*1000) + " ms";
   document.getElementById("trRangeL").textContent = fmtT(T.vs/T.sr);
   document.getElementById("trRangeR").textContent = fmtT(T.ve/T.sr);
@@ -1248,8 +1472,10 @@ function snapZero(p){
   return best;
 }
 var MINLEN = function(){ return Math.round(0.005*T.sr); };
-function setStart(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.s = Math.max(0, Math.min(p, T.e - MINLEN())); composite(); }
-function setEnd(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.e = Math.min(T.len, Math.max(p, T.s + MINLEN())); composite(); }
+function setStart(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.s = Math.max(0, Math.min(p, T.e - MINLEN())); clampFade(); composite(); }
+function setEnd(p, snap){ p = Math.round(p); if(snap) p = snapZero(p); T.e = Math.min(T.len, Math.max(p, T.s + MINLEN())); clampFade(); composite(); }
+function clampFade(){ T.f = Math.max(0, Math.min(T.f, T.e - T.s - Math.round(0.003*T.sr))); if(T.f < Math.round(0.005*T.sr)) T.f = 0; }
+function setFade(n){ T.f = Math.round(n); clampFade(); composite(); }
 function nudge(which, dir){
   var st = Math.round(stepSec()*T.sr)*dir;
   if(which === "s") setStart(T.s + st, false); else setEnd(T.e + st, false);
@@ -1260,7 +1486,14 @@ document.getElementById("trSm").onclick = function(){ nudge("s", -1); };
 document.getElementById("trSp").onclick = function(){ nudge("s", 1); };
 document.getElementById("trEm").onclick = function(){ nudge("e", -1); };
 document.getElementById("trEp").onclick = function(){ nudge("e", 1); };
-document.getElementById("trReset").onclick = function(){ T.s = 0; T.e = T.len; commitTrim(); setView(0, T.len); };
+document.getElementById("trReset").onclick = function(){ T.s = 0; T.e = T.len; T.f = 0; commitTrim(); setView(0, T.len); };
+/* fade out: el paso crece con el zoom, mínimo 10 ms */
+function nudgeFade(dir){
+  var st = Math.round(Math.max(0.01, stepSec()*4)*T.sr);
+  setFade((T.f || 0) + st*dir); commitTrim(); keepVisible(T.e - T.f);
+}
+document.getElementById("trFm").onclick = function(){ nudgeFade(-1); };
+document.getElementById("trFp").onclick = function(){ nudgeFade(1); };
 
 /* Quitar silencio: corta antes del primer sonido y después del último, con umbral 40 dB por debajo del pico */
 document.getElementById("trAuto").onclick = function(){
@@ -1304,11 +1537,16 @@ document.getElementById("trPlay").onclick = function(){
   var mode = null, sx = 0, svs = 0, pinch = null;
   function cx(clientX){ var r = cMain.getBoundingClientRect(); return clientX - r.left; }
   function sampleAt(x){ return T.vs + x/cMain.clientWidth*(T.ve - T.vs); }
+  /* Inicio y FO tienen la pestaña arriba, Fin abajo: con marcas cerca, gana la que tiene la pestaña del lado tocado */
   function hit(x, y){
-    var d = T.dpr, xs = xOf(T.s)/d, xe = xOf(T.e)/d, ds = Math.abs(x - xs), de = Math.abs(x - xe), R = 26;
-    if(ds > R && de > R) return null;
-    if(ds <= R && de <= R) return y < cMain.clientHeight/2 ? "s" : "e";
-    return ds < de ? "s" : "e";
+    var d = T.dpr, top = y < cMain.clientHeight/2, best = null, bd = 1e9;
+    [{k:"s", x:xOf(T.s)/d, top:true}, {k:"f", x:xOf(T.e - T.f)/d, top:true}, {k:"e", x:xOf(T.e)/d, top:false}].forEach(function(o){
+      var dd = Math.abs(x - o.x); if(dd > 26) return;
+      if(o.top !== top) dd += 20;
+      if(o.k === "f" && top && y > 24) dd -= 6;   // debajo de la pestaña de inicio, preferir FO
+      if(dd < bd){ bd = dd; best = o.k; }
+    });
+    return best;
   }
   function begin(x, y){
     mode = hit(x, y);
@@ -1317,11 +1555,13 @@ document.getElementById("trPlay").onclick = function(){
   function moveTo(x){
     if(mode === "s") setStart(sampleAt(x), false);
     else if(mode === "e") setEnd(sampleAt(x), false);
+    else if(mode === "f") setFade(T.e - sampleAt(x));
     else if(mode === "pan"){ var span = T.ve - T.vs; setView(svs - (x - sx)/cMain.clientWidth*span, svs - (x - sx)/cMain.clientWidth*span + span); }
   }
   function finish(){
     if(mode === "s"){ setStart(T.s, true); commitTrim(); }
     else if(mode === "e"){ setEnd(T.e, true); commitTrim(); }
+    else if(mode === "f") commitTrim();
     mode = null;
   }
   function pinchStart(t0, t1){
@@ -1332,7 +1572,7 @@ document.getElementById("trPlay").onclick = function(){
   if("ontouchstart" in window){
     cMain.addEventListener("touchstart", function(e){
       e.preventDefault();
-      if(e.touches.length >= 2){ if(mode === "s" || mode === "e") finish(); pinchStart(e.touches[0], e.touches[1]); return; }
+      if(e.touches.length >= 2){ if(mode === "s" || mode === "e" || mode === "f") finish(); pinchStart(e.touches[0], e.touches[1]); return; }
       var t = e.touches[0]; var r = cMain.getBoundingClientRect(); begin(t.clientX - r.left, t.clientY - r.top);
     }, {passive:false});
     cMain.addEventListener("touchmove", function(e){
