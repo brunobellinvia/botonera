@@ -63,6 +63,14 @@ button{touch-action:manipulation}
 .btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:14px;cursor:pointer;white-space:nowrap}
 .btn:focus-visible,.seg button:focus-visible,.pad:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#1a1205}
+.btn.big{font-size:16px;padding:10px 20px;letter-spacing:.12em}
+.btn.trim-btn{border-color:var(--edit);color:var(--edit)}
+.norm-val{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* respuesta al toque: un hundido corto con transform, que el iPad resuelve en la GPU sin recalcular el layout */
+.btn,.chip,.seg button,.nud,.step button,.sw,.se-play,.se-clear,.name,.panic{transition:transform .09s ease-out,filter .09s ease-out}
+.btn:active,.chip:active,.seg button:active,.nud:active,.step button:active,.sw:active,.se-play:active,.se-clear:active,.name:active,.panic:active{transform:scale(.94);filter:brightness(1.25)}
+.btn:disabled:active{transform:none;filter:none}
+@media (prefers-reduced-motion:reduce){.btn,.chip,.seg button,.nud,.step button,.sw,.se-play,.se-clear,.name,.panic{transition:none}}
 .btn.warn{border-color:var(--danger);color:var(--danger)}
 .btn.small{padding:6px 10px;font-size:13px}
 
@@ -283,10 +291,10 @@ body{margin:0}
   <div class="field"><span>Sonido</span>
     <div class="cur none" id="edCur">Sin sonido</div>
     <div class="row">
-      <label class="btn primary file">Cargar archivo<input type="file" id="edFile" accept="audio/*,.wav,.mp3,.ogg,.m4a,.aif,.aiff,.caf"></label>
+      <button class="btn primary big" id="edSearch">Buscar sonido</button>
+      <button class="btn trim-btn" id="edTrim">Recortar</button>
       <button class="btn" id="edTest">Probar</button>
-      <button class="btn" id="edSearch">Buscar sonido</button>
-      <button class="btn" id="edTrim">Recortar</button>
+      <label class="btn file">Cargar archivo<input type="file" id="edFile" accept="audio/*,.wav,.mp3,.ogg,.m4a,.aif,.aiff,.caf"></label>
     </div>
     <div class="trimInfo" id="edTrimInfo"></div>
     <select class="txt" id="edPick" aria-label="Usar un sonido ya cargado"></select>
@@ -297,6 +305,7 @@ body{margin:0}
   <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="150" step="1"><span class="val" id="edGainOut">100%</span></div>
     <div class="pmeter" aria-hidden="true"><div class="meter" id="padMeter"><i></i><b></b></div></div></div>
   <label class="check"><input type="checkbox" id="edHold"> Si lo mantengo, corta al soltar</label>
+  <label class="check"><input type="checkbox" id="edNorm"> Igualar volumen <span class="norm-val" id="edNormOut"></span></label>
   <label class="check"><input type="checkbox" id="edChoke"> Cortar el sonido anterior al volver a tocar</label>
   <div class="row"><button class="btn warn" id="edClear">Vaciar pad</button></div>
 </section>
@@ -430,6 +439,8 @@ function trigger(i){
   if(cell.choke && voices[i]){ try{ voices[i].stop(0); }catch(e){} }
   /* vg lleva la envolvente del recorte y el fade out; rg es solo para cortar al soltar, así no se pisan */
   var src = ctx.createBufferSource(), vg = ctx.createGain(), rg = ctx.createGain();
+  var ng = cell.norm === false || !cell.ng ? 1 : cell.ng;   // igualar volumen: calculado al cargar, acá solo se aplica
+  rg.gain.value = ng;
   src.buffer = buf; src.connect(vg); vg.connect(rg); rg.connect(g);
   var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
   if(e - s < 0.001){ s = 0; e = dur; }
@@ -439,7 +450,7 @@ function trigger(i){
   voices[i] = src;
   playing.push(src);
   src.onended = function(){ var k = playing.indexOf(src); if(k >= 0) playing.splice(k, 1); rg.disconnect(); };
-  return {src:src, vg:vg, rg:rg};
+  return {src:src, vg:vg, rg:rg, ng:ng};
 }
 /* Envolvente de una voz: fundidos de 2 y 4 ms en los bordes cortados (para que no haga click) y fade out con curva de igual potencia */
 var FADE_CURVE = (function(){ var n = 128, c = new Float32Array(n); for(var k=0;k<n;k++) c[k] = Math.cos(k/(n-1)*Math.PI/2); c[n-1] = 0; return c; })();
@@ -450,11 +461,90 @@ function scheduleEnvelope(p, t, len, cutStart, cutEnd, fade){
   if(fo >= 0.005) p.setValueCurveAtTime(FADE_CURVE, t + len - fo, fo);
   else if(cutEnd && len > 0.01){ p.setValueAtTime(1, t + len - 0.004); p.linearRampToValueAtTime(0, t + len); }
 }
+/* Igualar volumen: loudness integrada según EBU R128 / ITU-R BS.1770 (filtro K, bloques de 400 ms con
+   solapamiento de 75 %, gate absoluto de −70 y relativo de −10). Lleva cada sonido a NORM_TARGET LUFS:
+   baja los muy comprimidos y sube los bajitos, sin pasar el pico de NORM_CEIL dBFS ni subir más de NORM_MAX_BOOST.
+   Se calcula una vez por sonido y recorte; al tocar solo se aplica una ganancia fija. */
+var NORM_TARGET = -12, NORM_MAX_BOOST = 15, NORM_MAX_CUT = 24, NORM_CEIL = -1, NORM_MAX_SEC = 30;
+var normCache = {};
+function kCoefs(sr){
+  var f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196;
+  var K = Math.tan(Math.PI*f0/sr), Vh = Math.pow(10, G/20), Vb = Math.pow(Vh, 0.4996667741545416), a0 = 1 + K/Q + K*K;
+  var s1 = {b0:(Vh + Vb*K/Q + K*K)/a0, b1:2*(K*K - Vh)/a0, b2:(Vh - Vb*K/Q + K*K)/a0, a1:2*(K*K - 1)/a0, a2:(1 - K/Q + K*K)/a0};
+  f0 = 38.13547087602444; Q = 0.5003270373238773; K = Math.tan(Math.PI*f0/sr); a0 = 1 + K/Q + K*K;
+  var s2 = {b0:1, b1:-2, b2:1, a1:2*(K*K - 1)/a0, a2:(1 - K/Q + K*K)/a0};
+  return [s1, s2];
+}
+/* Devuelve {lufs, peakDb} de las muestras [s0, e0) */
+function measureLoudness(buf, s0, e0){
+  var sr = buf.sampleRate; e0 = Math.min(e0, s0 + Math.round(NORM_MAX_SEC*sr));
+  var n = e0 - s0; if(n <= 0) return {lufs:-Infinity, peakDb:-Infinity};
+  var hop = Math.round(sr*0.1), nSeg = Math.max(1, Math.ceil(n/hop)), seg = new Float64Array(nSeg), peak = 0;
+  var cf = kCoefs(sr), A = cf[0], B = cf[1];
+  for(var c=0;c<buf.numberOfChannels;c++){
+    var x = buf.getChannelData(c);
+    var ax1 = 0, ax2 = 0, ay1 = 0, ay2 = 0, by1 = 0, by2 = 0, sum = 0, si = 0, left = hop;
+    for(var j=s0;j<e0;j++){
+      var v = x[j], av = v < 0 ? -v : v; if(av > peak) peak = av;
+      var y = A.b0*v + A.b1*ax1 + A.b2*ax2 - A.a1*ay1 - A.a2*ay2;
+      var z = B.b0*y + B.b1*ay1 + B.b2*ay2 - B.a1*by1 - B.a2*by2;
+      ax2 = ax1; ax1 = v; ay2 = ay1; ay1 = y; by2 = by1; by1 = z;
+      sum += z*z;
+      if(--left === 0){ seg[si++] += sum; sum = 0; left = hop; }
+    }
+    if(si < nSeg) seg[si] += sum;
+  }
+  var peakDb = peak > 0 ? 20*Math.log(peak)/Math.LN10 : -Infinity;
+  function L(ms){ return ms > 0 ? -0.691 + 10*Math.log(ms)/Math.LN10 : -Infinity; }
+  if(nSeg < 4){   // menos de 400 ms: un solo bloque con todo el sonido
+    var tot = 0; for(var q=0;q<nSeg;q++) tot += seg[q];
+    return {lufs:L(tot/n), peakDb:peakDb};
+  }
+  var blocks = [];
+  for(var b=0;b+3<nSeg;b++){
+    var len = Math.min(4*hop, n - b*hop), e = (seg[b] + seg[b+1] + seg[b+2] + seg[b+3])/len;
+    if(L(e) > -70) blocks.push(e);
+  }
+  if(!blocks.length) return {lufs:-Infinity, peakDb:peakDb};
+  var m = 0; blocks.forEach(function(e){ m += e; }); m /= blocks.length;
+  var rel = L(m) - 10, m2 = 0, k2 = 0;
+  blocks.forEach(function(e){ if(L(e) > rel){ m2 += e; k2++; } });
+  return {lufs:L(k2 ? m2/k2 : m), peakDb:peakDb};
+}
+function loudnessGain(key, buf, s0, e0){
+  if(normCache[key]) return normCache[key];
+  var r = measureLoudness(buf, s0, e0), gDb = 0;
+  if(isFinite(r.lufs)){
+    gDb = NORM_TARGET - r.lufs;
+    gDb = Math.max(-NORM_MAX_CUT, Math.min(NORM_MAX_BOOST, gDb, NORM_CEIL - r.peakDb));
+  }
+  return normCache[key] = Math.pow(10, gDb/20);
+}
+function normKey(cell){ return cell.sound + "|" + (cell.start || 0).toFixed(4) + "|" + (cell.end == null ? "" : cell.end.toFixed(4)); }
+function ensureNorm(i){
+  var cell = state.cells[i]; if(!cell || !cell.sound) return;
+  var buf = buffers[cell.sound]; if(!buf) return;
+  var key = normKey(cell); if(cell.ngKey === key && cell.ng) return;
+  var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
+  if(e - s < 0.001){ s = 0; e = dur; }
+  cell.ng = loudnessGain(key, buf, Math.floor(s*buf.sampleRate), Math.floor(e*buf.sampleRate));
+  cell.ngKey = key;
+}
+/* Al abrir un preset: analiza los pads por tandas de 30 ms, así la pantalla no se traba */
+function normAll(){
+  var idx = [], k = 0;
+  state.cells.forEach(function(c, i){ if(c && c.sound) idx.push(i); });
+  (function next(){
+    var t0 = performance.now();
+    while(k < idx.length && performance.now() - t0 < 30) ensureNorm(idx[k++]);
+    if(k < idx.length) setTimeout(next, 0);
+  })();
+}
 /* Mantener y soltar: si el dedo estuvo apoyado más de HOLD_MS, al soltar se corta con un fundido corto */
 var HOLD_MS = 250;
 function release(v){
   var t = ctx.currentTime;
-  v.rg.gain.setValueAtTime(1, t);
+  v.rg.gain.setValueAtTime(v.ng || 1, t);
   v.rg.gain.linearRampToValueAtTime(0, t + 0.012);
   try{ v.src.stop(t + 0.014); }catch(e){}
 }
@@ -561,7 +651,7 @@ function setKnob(p, save){
   if(save){ settings.knob = knobPos; saveSettings(); }
 }
 
-/* Medidores de nivel: pico con caída de 30 dB/s y marca de pico que se sostiene 1,2 s. Solo calculan mientras hay sonido */
+/* Medidores de nivel (pico de muestra, en dBFS): caída de 30 dB/s y marca de pico que se sostiene 0,6 s. Solo calculan mientras hay sonido */
 var M_FLOOR = -48;
 function makeLevel(an){ return {an:an, buf:new Float32Array(an.fftSize), bytes:new Uint8Array(an.fftSize), db:M_FLOOR, hold:M_FLOOR, holdT:0}; }
 var mLevel = makeLevel(masterAn), pLevel = makeLevel(padAn);
@@ -574,7 +664,7 @@ function readPeak(L){
 function stepLevel(L, dt, now){
   var pk = readPeak(L);
   L.db = Math.max(pk, L.db - 30*dt, M_FLOOR);
-  if(pk >= L.hold){ L.hold = pk; L.holdT = now; } else if(now - L.holdT > 1200){ L.hold = Math.max(M_FLOOR, L.hold - 60*dt); }
+  if(pk >= L.hold){ L.hold = pk; L.holdT = now; } else if(now - L.holdT > 600){ L.hold = Math.max(M_FLOOR, L.hold - 60*dt); }
 }
 function levelFrac(db){ return Math.max(0, Math.min(1, (db - M_FLOOR)/(-M_FLOOR))); }
 function levelClass(db){ return db >= -0.5 ? "clip" : db >= -6 ? "warn" : ""; }
@@ -711,7 +801,7 @@ function demoPreset(){
   var cells = [];
   DEMO.forEach(function(d, k){
     var r = Math.floor(k/4), c = k%4;
-    cells[r*MAX+c] = {sound:"demo:"+d[0], label:d[1], color:COLORS[d[2]], gain:1, choke:/^(ohh|chh|c2|eb2|g2|bb2)$/.test(d[0])};
+    cells[r*MAX+c] = {sound:"demo:"+d[0], label:d[1], color:COLORS[d[2]], gain:1, choke:true};
   });
   return {id:null, name:"Kit demo", rows:4, cols:4, gap:8, cells:cells};
 }
@@ -922,7 +1012,7 @@ COLORS.forEach(function(c){
   edColors.appendChild(b);
 });
 function cellFor(i){
-  if(!state.cells[i]) state.cells[i] = {sound:null, label:"", color:COLORS[(i % MAX) % COLORS.length], gain:1, choke:false};
+  if(!state.cells[i]) state.cells[i] = {sound:null, label:"", color:COLORS[(i % MAX) % COLORS.length], gain:1, choke:true};
   return state.cells[i];
 }
 function edMsg(t, ok){ var m = document.getElementById("edMsg"); m.hidden = !t; m.textContent = t || ""; m.className = ok ? "msg ok" : "msg"; }
@@ -946,6 +1036,11 @@ function syncEditor(){
   document.getElementById("edGain").value = Math.round((cell.gain == null ? 1 : cell.gain)*100);
   document.getElementById("edGainOut").textContent = Math.round((cell.gain == null ? 1 : cell.gain)*100) + "%";
   document.getElementById("edChoke").checked = !!cell.choke;
+  var normOn = cell.norm !== false;
+  document.getElementById("edNorm").checked = normOn;
+  var ngDb = cell.ng ? 20*Math.log(cell.ng)/Math.LN10 : null;
+  document.getElementById("edNormOut").textContent = normOn && ngDb != null && cell.sound
+    ? (ngDb >= 0.05 ? "+" : ngDb <= -0.05 ? "−" : "") + Math.abs(ngDb).toFixed(1) + " dB" : "";
   document.getElementById("edHold").checked = cell.hold !== false;
   document.getElementById("edPick").value = cell.sound || "";
   var buf = cell.sound ? buffers[cell.sound] : null;
@@ -978,10 +1073,10 @@ function fillPicker(){
 function assign(id, opts){
   opts = opts || {};
   var i = selected, cell = cellFor(i);
-  cell.sound = id; cell.start = opts.start || null; cell.end = null;
+  cell.sound = id; cell.start = opts.start || null; cell.end = null; cell.fadeOut = null; cell.choke = true;
   if(opts.label) cell.label = opts.label.slice(0,24);
   else if(!cell.label) cell.label = (soundNames[id] || "").replace(/^Demo · /, "").replace(/\.[a-z0-9]+$/i, "").slice(0,24);
-  return ensureSound(id).then(function(){ paintPad(i); syncEditor(); markDirty(); if(buffers[id]) trigger(i); });
+  return ensureSound(id).then(function(){ ensureNorm(i); paintPad(i); syncEditor(); markDirty(); if(buffers[id]) trigger(i); });
 }
 /* Decodifica y guarda un sonido nuevo; devuelve su id. Si no se puede decodificar, rechaza */
 function storeSound(ab, name, type){
@@ -1031,6 +1126,7 @@ document.getElementById("edGain").oninput = function(e){
   document.getElementById("edGainOut").textContent = e.target.value + "%"; markDirty();
 };
 document.getElementById("edChoke").onchange = function(e){ cellFor(selected).choke = e.target.checked; markDirty(); };
+document.getElementById("edNorm").onchange = function(e){ var c = cellFor(selected); c.norm = e.target.checked; ensureNorm(selected); syncEditor(); markDirty(); };
 document.getElementById("edHold").onchange = function(e){ cellFor(selected).hold = e.target.checked; markDirty(); };
 document.getElementById("edClear").onclick = function(){
   var i = selected; state.cells[i] = null; cellFor(i); paintPad(i); syncEditor(); markDirty();
@@ -1201,7 +1297,10 @@ function togglePrev(r, btn){
   S.playing = r.path; btn.classList.add("wait");
   getBytes(r).then(decodeTagged).then(function(buf){
     if(S.playing !== r.path) return;
-    var src = ctx.createBufferSource(); src.buffer = buf; src.connect(master); src.start(0);
+    var key = "prev|" + r.path, ng = loudnessGain(key, buf, 0, buf.length);
+    if(document.getElementById("seTrim").checked){ var ls = leadingSilence(buf); ng = loudnessGain(key + "|" + ls.toFixed(4), buf, Math.floor(ls*buf.sampleRate), buf.length); }
+    var src = ctx.createBufferSource(), pg = ctx.createGain(); pg.gain.value = ng;
+    src.buffer = buf; src.connect(pg); pg.connect(master); src.start(0);
     S.audio = src; btn.classList.remove("wait"); btn.classList.add("on");
     src.onended = function(){ if(S.audio === src){ S.audio = null; S.playing = null; btn.classList.remove("on"); } };
   }).catch(function(e){
@@ -1307,7 +1406,7 @@ function commitTrim(){
   cell.fadeOut = T.f > 0 ? T.f/T.sr : null;
   paintPad(T.i); markDirty();
 }
-document.getElementById("trDone").onclick = function(){ commitTrim(); closeTrim(); };
+document.getElementById("trDone").onclick = function(){ commitTrim(); ensureNorm(T.i); closeTrim(); };
 document.getElementById("trCancel").onclick = function(){
   var cell = state.cells[T.i];
   if(cell){ cell.start = T.prev.start; cell.end = T.prev.end; cell.fadeOut = T.prev.fadeOut; paintPad(T.i); }
@@ -1520,7 +1619,7 @@ function stopPreview(){
 }
 document.getElementById("trPlay").onclick = function(){
   if(T.play){ stopPreview(); composite(); return; }
-  commitTrim(); unlock();
+  commitTrim(); ensureNorm(T.i); unlock();
   var v = trigger(T.i); if(!v) return;
   T.play = {v:v, t0:ctx.currentTime, len:(T.e - T.s)/T.sr};
   document.getElementById("trPlay").textContent = "Parar";
@@ -1648,7 +1747,7 @@ function loadPreset(p){
   padGains.forEach(function(g){ if(g) g.gain.value = 1; });
   state.cells.forEach(function(c, i){ if(c) padGain(i).gain.value = c.gain == null ? 1 : c.gain; });
   renderGrid(); setClean();
-  return loadSoundsFor(state).then(function(){ for(var i in padEls) paintPad(+i); });
+  return loadSoundsFor(state).then(function(){ for(var i in padEls) paintPad(+i); normAll(); });
 }
 function renderList(){
   var list = document.getElementById("prList");
@@ -1717,7 +1816,7 @@ document.getElementById("prImport").onchange = function(e){
 /* ---------- arranque ---------- */
 while(state.cells.length < MAX*MAX) state.cells.push(null);
 renderGrid(); setMode("play");
-loadSoundsFor(state).then(function(){ for(var i in padEls) paintPad(+i); });
+loadSoundsFor(state).then(function(){ for(var i in padEls) paintPad(+i); normAll(); });
 setKnob(knobPos, false);
 openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s){
   if(s){
