@@ -1,4 +1,5 @@
 # Cloudflare publica este worker solo cada vez que cambia la carpeta worker/ en GitHub (Workers Builds).
+# Conectado a Workers Builds el 2026-10-18.
 # A mano también se puede: cd worker && npx wrangler deploy
 name = "botonera-myinstants"
 main = "myinstants-proxy.js"
