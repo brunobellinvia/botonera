@@ -150,6 +150,12 @@ button{touch-action:manipulation}
 .editing .pad .wave{top:32px;height:calc(100% - 64px)}
 .editing .pad{box-shadow:inset 0 0 0 1px var(--edit-line)}
 .editing .pad .src{display:block}
+.pad.lifted{z-index:5;pointer-events:none;opacity:.82;box-shadow:0 14px 30px rgba(0,0,0,.55),inset 0 0 0 2px var(--edit);transition:box-shadow .12s}
+.pad.drop{box-shadow:inset 0 0 0 3px var(--edit);background:var(--edit-line)}
+@keyframes jiggle{0%{transform:rotate(-.7deg)}50%{transform:rotate(.7deg)}100%{transform:rotate(-.7deg)}}
+.grid.arrange .pad:not(.lifted){animation:jiggle .28s ease-in-out infinite;will-change:transform}
+.grid.arrange .pad:nth-child(2n):not(.lifted){animation-delay:-.14s}
+@media (prefers-reduced-motion:reduce){.grid.arrange .pad:not(.lifted){animation:none}}
 .editing .pad.empty{background:transparent;box-shadow:inset 0 0 0 1px var(--line);outline:1px dashed var(--edit-line);outline-offset:-6px}
 /* en Editar, la barra de grilla lleva una línea del color del modo */
 .gridbar{border-left:3px solid var(--edit);padding-left:10px}
@@ -377,8 +383,8 @@ body{margin:0}
   <div class="trim-actions">
     <button class="btn primary" id="trPlay">Reproducir</button>
     <button class="btn" id="trAuto">Quitar silencio</button>
-    <button class="btn" id="trFit">Ver recorte</button>
-    <button class="btn" id="trAll">Ver todo</button>
+    <button class="btn" id="trFit">Zoom al recorte</button>
+    <button class="btn" id="trAll">Sonido entero</button>
     <button class="btn" id="trZo" aria-label="Alejar">Zoom −</button>
     <button class="btn" id="trZi" aria-label="Acercar">Zoom +</button>
     <button class="btn warn" id="trReset">Sin recorte</button>
@@ -957,9 +963,13 @@ function wavePath(id, start, end, fade){
   return waveCache[key];
 }
 
-/* entrada táctil: touchstart dispara el sonido antes que cualquier otra cosa */
+/* entrada táctil: touchstart dispara el sonido antes que cualquier otra cosa.
+   En Editar: un toque abre el editor del pad; mantenerlo apretado 0,4 s lo levanta para moverlo,
+   como en la pantalla de inicio de iOS. Al soltarlo sobre otro pad, intercambian lugar */
 var active = {};
-function onDown(target, key){
+var LONG_MS = 400, MOVE_TOL = 10;
+var drag = null;   // {key, el, i, x0, y0, target}
+function onDown(target, key, x, y){
   var el = target && target.closest ? target.closest(".pad") : null;
   if(!el) return;
   var i = +el.dataset.i;
@@ -967,28 +977,78 @@ function onDown(target, key){
     var v = trigger(i);
     el.classList.add("hit");
     active[key] = {el:el, v:v, i:i, t:Date.now()};
-  } else {
-    openEditor(i);
+    return;
   }
+  if(drag) return;   // un solo pad a la vez
+  var a = {edit:true, el:el, i:i, x0:x, y0:y, moved:false, timer:0};
+  a.timer = setTimeout(function(){ if(active[key] === a) startDrag(key, a); }, LONG_MS);
+  active[key] = a;
 }
-function onUp(key){
+function onMove(key, x, y){
+  var a = active[key]; if(!a || !a.edit) return;
+  if(drag && drag.key === key){ moveDrag(x, y); return; }
+  if(Math.abs(x - a.x0) > MOVE_TOL || Math.abs(y - a.y0) > MOVE_TOL){ a.moved = true; clearTimeout(a.timer); }
+}
+function onUp(key, cancel){
   var a = active[key]; if(!a) return;
   delete active[key];
+  if(a.edit){
+    clearTimeout(a.timer);
+    if(drag && drag.key === key){ endDrag(cancel); return; }
+    if(!a.moved && !cancel) openEditor(a.i);
+    return;
+  }
   a.el.classList.remove("hit");
   var cell = state.cells[a.i];
   if(a.v && cell && cell.hold !== false && Date.now() - a.t >= HOLD_MS) release(a.v);
 }
+function startDrag(key, a){
+  drag = {key:key, el:a.el, i:a.i, x0:a.x0, y0:a.y0, target:null};
+  grid.classList.add("arrange");
+  a.el.classList.add("lifted");
+  a.el.style.transform = "translate3d(0,0,0) scale(1.08)";
+}
+function moveDrag(x, y){
+  var d = drag;
+  d.el.style.transform = "translate3d(" + (x - d.x0) + "px," + (y - d.y0) + "px,0) scale(1.08)";
+  var under = document.elementFromPoint(x, y), t = under && under.closest ? under.closest(".pad") : null;
+  if(t === d.el) t = null;
+  if(t !== d.target){
+    if(d.target) d.target.classList.remove("drop");
+    d.target = t;
+    if(t) t.classList.add("drop");
+  }
+}
+function endDrag(cancel){
+  var d = drag; drag = null;
+  grid.classList.remove("arrange");
+  d.el.classList.remove("lifted");
+  d.el.style.transform = "";
+  if(d.target) d.target.classList.remove("drop");
+  if(cancel || !d.target) return;
+  var j = +d.target.dataset.i, i = d.i, ci = state.cells[i] || null, cj = state.cells[j] || null;
+  state.cells[i] = cj; state.cells[j] = ci;
+  voices[i] = voices[j] = null;
+  [i, j].forEach(function(k){ var c = state.cells[k]; padGain(k).gain.value = c && c.gain != null ? c.gain : 1; paintPad(k); });
+  markDirty();
+}
 if("ontouchstart" in window){
   grid.addEventListener("touchstart", function(e){
     e.preventDefault();
-    for(var k=0;k<e.changedTouches.length;k++){ var t = e.changedTouches[k]; onDown(t.target, "t"+t.identifier); }
+    for(var k=0;k<e.changedTouches.length;k++){ var t = e.changedTouches[k]; onDown(t.target, "t"+t.identifier, t.clientX, t.clientY); }
   }, {passive:false});
-  var end = function(e){ for(var k=0;k<e.changedTouches.length;k++) onUp("t"+e.changedTouches[k].identifier); };
-  grid.addEventListener("touchend", end); grid.addEventListener("touchcancel", end);
+  grid.addEventListener("touchmove", function(e){
+    if(mode !== "edit") return;
+    e.preventDefault();
+    for(var k=0;k<e.changedTouches.length;k++){ var t = e.changedTouches[k]; onMove("t"+t.identifier, t.clientX, t.clientY); }
+  }, {passive:false});
+  grid.addEventListener("touchend", function(e){ for(var k=0;k<e.changedTouches.length;k++) onUp("t"+e.changedTouches[k].identifier); });
+  grid.addEventListener("touchcancel", function(e){ for(var k=0;k<e.changedTouches.length;k++) onUp("t"+e.changedTouches[k].identifier, true); });
 } else {
-  grid.addEventListener("pointerdown", function(e){ e.preventDefault(); onDown(e.target, "p"+e.pointerId); });
+  grid.addEventListener("pointerdown", function(e){ e.preventDefault(); onDown(e.target, "p"+e.pointerId, e.clientX, e.clientY); });
+  window.addEventListener("pointermove", function(e){ onMove("p"+e.pointerId, e.clientX, e.clientY); });
   window.addEventListener("pointerup", function(e){ onUp("p"+e.pointerId); });
-  window.addEventListener("pointercancel", function(e){ onUp("p"+e.pointerId); });
+  window.addEventListener("pointercancel", function(e){ onUp("p"+e.pointerId, true); });
 }
 document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
 

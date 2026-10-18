@@ -36,6 +36,10 @@ En la app, con Freesound elegido, tocá **Conectar Freesound**. Se abre Safari p
 
 Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide mencionar al autor cuando publiques algo que lo use. **CC BY-NC** (en ámbar) no permite uso comercial: revisalo antes de usar esos sonidos en un show pago. La licencia y el autor quedan guardados junto con cada sonido.
 
+## Ordenar los pads
+
+En **Editar**, mantené apretado un pad 0,4 s: se levanta y los demás tiemblan, como en la pantalla de inicio de iOS. Arrastralo sobre otro pad y soltalo: intercambian lugar con todo su contenido (sonido, recorte, color y opciones). Si lo soltás fuera de la grilla, vuelve a su lugar. Un toque corto sigue abriendo el editor del pad.
+
 ## Igualar volumen
 
 Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −12 LUFS: baja los sonidos muy comprimidos y sube los bajitos, hasta +15 dB y sin que el pico pase de −1 dBFS. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. La preescucha del buscador usa el mismo cálculo. En el editor se ve cuánto se corrigió.
@@ -53,7 +57,7 @@ MyInstants no permite que otras páginas lean sus búsquedas ni sus MP3, así qu
 3. Tocá **Edit code**, borrá todo el código de ejemplo, pegá el contenido de `worker/myinstants-proxy.js` y tocá **Deploy**.
 4. Copiá la dirección del worker. Tiene esta forma: `https://botonera-myinstants.TU-SUBDOMINIO.workers.dev`.
 
-Desde la terminal también se puede: `cd worker && npx wrangler deploy`.
+El worker está conectado a este repo (Workers Builds): cada cambio que se sube a `main` lo publica Cloudflare solo, con la configuración de `worker/wrangler.toml`. Desde la terminal también se puede: `cd worker && npx wrangler deploy`.
 
 Si abrís la app desde otra dirección que no sea `https://brunobellinvia.github.io`, agregala a `ALLOWED_ORIGINS` al principio del worker.
 
