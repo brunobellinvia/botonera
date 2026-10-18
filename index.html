@@ -229,6 +229,23 @@ button{touch-action:manipulation}
 .se-play.on{background:var(--fg);border-color:var(--fg)}
 .se-play.on::before{margin-left:0;width:12px;height:12px;border:0;background:var(--bg)}
 .se-play.wait::before{border-left-color:var(--muted)}
+.se-srcrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.se-src button{min-width:110px}
+#srcMI[aria-pressed="true"],#srcFS[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.se-acct{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;flex:1 1 300px;min-width:0;font-size:15px;color:var(--muted)}
+.se-acct .btn{flex:none}
+@media (max-width:600px){
+  .se-srcrow{flex-direction:column;align-items:stretch}
+  .se-src{align-self:flex-start}
+  .se-acct{flex-basis:auto}
+  .search .trim-title b{font-size:18px}
+}
+.se-acct b{color:var(--fg);font-weight:600}
+.se-acct .ok{color:var(--play)}
+.se-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.se-meta{font-family:var(--f-mono);font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.se-meta .nc{color:var(--meter-warn)}
+.chip.toggle[aria-pressed="true"]{background:var(--play);border-color:var(--play);color:#0d1f13}
 .se-title{flex:1;min-width:0;font-size:19px;font-weight:600;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-user-select:text;user-select:text}
 .se-use{min-width:96px}
 .se-more{display:flex;justify-content:center;padding:14px 0}
@@ -384,6 +401,13 @@ body{margin:0}
       <button class="btn primary" id="seProxySave">Guardar</button>
     </div>
     <p class="msg" id="seCfgMsg" hidden></p>
+  </div>
+  <div class="se-srcrow">
+    <div class="seg se-src" role="group" aria-label="Fuente">
+      <button type="button" id="srcMI" aria-pressed="true">MyInstants</button>
+      <button type="button" id="srcFS" aria-pressed="false">Freesound</button>
+    </div>
+    <div class="se-acct" id="seAcct" hidden><span id="seAcctTxt"></span><button type="button" class="btn" id="seAcctBtn" hidden></button></div>
   </div>
   <form class="se-row" id="seForm" autocomplete="off">
     <div class="se-input">
@@ -560,11 +584,12 @@ function panic(){
 
 /* Ajustes del dispositivo (aparte de los presets): volumen general y dirección del proxy de búsqueda */
 var DEFAULT_PROXY = "https://botonera-myinstants.brunebell8.workers.dev";
-var settings = {knob:null, proxy:DEFAULT_PROXY};
+var settings = {knob:null, proxy:DEFAULT_PROXY, fsSession:"", seSource:"myinstants"};
 function saveSettings(){
   clearTimeout(saveSettings.t);
   saveSettings.t = setTimeout(function(){
-    idb.put("meta", {id:"settings", knob:settings.knob == null ? knobPos : settings.knob, proxy:settings.proxy}).catch(function(){});
+    idb.put("meta", {id:"settings", knob:settings.knob == null ? knobPos : settings.knob, proxy:settings.proxy,
+      fsSession:settings.fsSession, seSource:settings.seSource}).catch(function(){});
   }, 300);
 }
 
@@ -1079,11 +1104,11 @@ function assign(id, opts){
   return ensureSound(id).then(function(){ ensureNorm(i); paintPad(i); syncEditor(); markDirty(); if(buffers[id]) trigger(i); });
 }
 /* Decodifica y guarda un sonido nuevo; devuelve su id. Si no se puede decodificar, rechaza */
-function storeSound(ab, name, type){
+function storeSound(ab, name, type, meta){
   return decode(ab.slice(0)).then(function(buf){
     var id = uid("s_");
     buffers[id] = buf; soundNames[id] = name;
-    return idb.put("sounds", {id:id, name:name, type:type, size:ab.byteLength, data:ab})
+    return idb.put("sounds", {id:id, name:name, type:type, size:ab.byteLength, data:ab, meta:meta || null})
       .then(function(){ return true; }, function(){ return false; })
       .then(function(saved){ return fillPicker().then(function(){ return {id:id, buf:buf, saved:saved}; }); });
   });
@@ -1135,7 +1160,15 @@ document.getElementById("edClose").onclick = closeSheets;
 document.getElementById("edTrim").onclick = function(){ openTrim(selected); };
 
 /* ---------- buscar en MyInstants (a través del proxy de Cloudflare) ---------- */
-var S = {src:null, page:0, more:false, busy:false, results:[], audio:null, playing:null, req:0};
+var S = {src:null, page:0, more:false, busy:false, results:[], audio:null, playing:null, req:0,
+  source:"myinstants", short:true, count:0, caps:null, fsUser:null, pair:null, pairT:0};
+/* Freesound: listados sin buscar (orden de la API) */
+var FS_BROWSE = [
+  {fs:true, sort:"downloads_desc", label:"Más descargados"}, {fs:true, sort:"rating_desc", label:"Mejor valorados"},
+  {fs:true, sort:"created_desc", label:"Recientes"}
+];
+/* Formatos originales que Safari de iOS 15 decodifica; OGG no, ahí se usa la preescucha */
+var FS_DECODABLE = /^(wav|aif|aiff|mp3|m4a|flac)$/i, FS_MAX_ORIG = 40*1024*1024;
 /* Listados para explorar sin buscar. Populares y Lo mejor son de Argentina */
 var BROWSE = [
   {kind:"trending", label:"Populares"}, {kind:"best", label:"Lo mejor"}, {kind:"recent", label:"Recientes"},
@@ -1160,30 +1193,113 @@ function showCfg(on){
 function openSearch(i){
   if(i < 0) return;
   var r = Math.floor(i/MAX), c = i % MAX;
-  document.getElementById("sePad").textContent = "Pad " + ROWS[r] + (c+1) + " · MyInstants";
+  document.getElementById("sePad").textContent = "Pad " + ROWS[r] + (c+1);
   seEl.hidden = false;
   cfgMsg("");
   showCfg(!proxyBase());
-  renderChips(); renderResults();
-  if(!S.src && proxyBase()) load(BROWSE[0], 1);
-  else if(!proxyBase()){ try{ document.getElementById("seProxy").focus(); }catch(e){} }
+  if(!proxyBase()){ renderChips(); renderResults(); try{ document.getElementById("seProxy").focus(); }catch(e){} return; }
+  if(!S.src || S.source !== settings.seSource) setSource(settings.seSource);
+  else { renderSource(); renderChips(); renderResults(); if(S.source === "freesound") refreshCaps(); }
 }
+function browseList(){ return S.source === "freesound" ? FS_BROWSE : BROWSE; }
 function renderChips(){
   var box = document.getElementById("seChips"); box.textContent = "";
-  BROWSE.forEach(function(b){
+  if(S.source === "freesound"){
+    var t = document.createElement("button"); t.type = "button"; t.className = "chip toggle"; t.textContent = "Cortos (hasta 10 s)";
+    t.setAttribute("aria-pressed", S.short ? "true" : "false");
+    t.onclick = function(){ S.short = !S.short; renderChips(); if(S.src) load(S.src, 1); };
+    box.appendChild(t);
+  }
+  browseList().forEach(function(b){
     var c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.textContent = b.label;
     c.setAttribute("aria-pressed", S.src === b ? "true" : "false");
     c.onclick = function(){ setQuery(""); load(b, 1); };
     box.appendChild(c);
   });
 }
+/* ---- fuente: MyInstants o Freesound ---- */
+function renderSource(){
+  document.getElementById("srcMI").setAttribute("aria-pressed", S.source === "myinstants" ? "true" : "false");
+  document.getElementById("srcFS").setAttribute("aria-pressed", S.source === "freesound" ? "true" : "false");
+  document.getElementById("seAcct").hidden = S.source !== "freesound";
+  document.getElementById("seQ").placeholder = S.source === "freesound" ? "Ej.: snare, vinyl crackle, applause" : "Ej.: aplausos, airhorn, bruh";
+  renderAcct();
+}
+function setSource(src){
+  S.source = src; settings.seSource = src; saveSettings();
+  S.src = null; S.results = []; S.more = false; S.count = 0; S.req++; S.busy = false; stopPrev(); seStatus("");
+  setQuery(""); renderSource(); renderChips(); renderResults();
+  if(src === "myinstants"){ load(BROWSE[0], 1); return; }
+  refreshCaps().then(function(){
+    if(S.source !== "freesound") return;
+    if(S.caps && S.caps.search) load(FS_BROWSE[0], 1);
+    else { renderResults(); }
+  });
+}
+document.getElementById("srcMI").onclick = function(){ if(S.source !== "myinstants") setSource("myinstants"); };
+document.getElementById("srcFS").onclick = function(){ if(S.source !== "freesound") setSource("freesound"); };
+
+/* ---- cuenta de Freesound ---- */
+function fsHeaders(){ return settings.fsSession ? {"X-Botonera-Session": settings.fsSession} : {}; }
+function refreshCaps(){
+  return apiJSON("/").then(function(d){
+    S.caps = (d && d.freesound) || {search:false, originals:false};
+    if(!S.caps.originals || !settings.fsSession){ S.fsUser = null; return; }
+    return apiJSON("/fs/status", fsHeaders()).then(function(st){
+      if(st && st.connected){ S.fsUser = st.user || "tu cuenta"; }
+      else { S.fsUser = null; settings.fsSession = ""; saveSettings(); }
+    });
+  }).catch(function(){ if(!S.caps) S.caps = {search:false, originals:false, unknown:true}; }).then(renderAcct);
+}
+function renderAcct(){
+  var txt = document.getElementById("seAcctTxt"), btn = document.getElementById("seAcctBtn"), c = S.caps;
+  btn.hidden = true;
+  if(!c){ txt.textContent = "Revisando Freesound…"; return; }
+  if(c.unknown){ txt.textContent = "No se pudo consultar el proxy."; return; }
+  if(!c.search){ txt.textContent = "Falta configurar Freesound en el worker (ver README)."; return; }
+  if(!c.originals){ txt.textContent = "Preescucha MP3 de 128 kbps. Para bajar originales falta configurar el login en el worker."; return; }
+  if(S.pair){ txt.textContent = "Esperando que termines de entrar en Freesound…"; btn.hidden = false; btn.textContent = "Cancelar"; btn.onclick = fsCancel; return; }
+  if(S.fsUser){
+    txt.innerHTML = ""; var b = document.createElement("span"); b.className = "ok"; b.textContent = "Conectado como " + S.fsUser;
+    txt.appendChild(b); txt.appendChild(document.createTextNode(" · baja el archivo original"));
+    btn.hidden = false; btn.textContent = "Desconectar"; btn.onclick = fsLogout; return;
+  }
+  txt.textContent = "Preescucha MP3 de 128 kbps. Conectá tu cuenta para bajar el archivo original.";
+  btn.hidden = false; btn.textContent = "Conectar Freesound"; btn.onclick = fsConnect;
+}
+function randState(){ var a = new Uint8Array(16); crypto.getRandomValues(a); return Array.prototype.map.call(a, function(b){ return ("0" + b.toString(16)).slice(-2); }).join(""); }
+/* El login se abre en Safari; la app consulta cada 2 s si ya terminó. Funciona aunque la app esté instalada */
+function fsConnect(){
+  var st = randState(), a = document.createElement("a");
+  a.href = proxyBase() + "/fs/login?state=" + st; a.target = "_blank"; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+  S.pair = {state:st, until:Date.now() + 10*60*1000}; renderAcct(); pollClaim();
+}
+function fsCancel(){ S.pair = null; clearTimeout(S.pairT); renderAcct(); }
+function pollClaim(){
+  clearTimeout(S.pairT);
+  if(!S.pair) return;
+  if(Date.now() > S.pair.until){ S.pair = null; renderAcct(); return; }
+  var st = S.pair.state;
+  apiJSON("/fs/claim?state=" + st).then(function(d){
+    if(!S.pair || S.pair.state !== st) return;
+    if(d && d.session){ settings.fsSession = d.session; saveSettings(); S.pair = null; refreshCaps(); }
+    else S.pairT = setTimeout(pollClaim, 2000);
+  }).catch(function(){ S.pairT = setTimeout(pollClaim, 3000); });
+}
+document.addEventListener("visibilitychange", function(){ if(!document.hidden && S.pair) pollClaim(); });
+function fsLogout(){
+  var h = fsHeaders();
+  settings.fsSession = ""; S.fsUser = null; saveSettings(); renderAcct();
+  apiJSON("/fs/logout", h).catch(function(){});
+}
 function setQuery(v){
   var inp = document.getElementById("seQ"); inp.value = v;
   document.getElementById("seClear").hidden = !v;
 }
 document.getElementById("seQ").addEventListener("input", function(e){ document.getElementById("seClear").hidden = !e.target.value; });
-/* Limpiar: borra la búsqueda y vuelve a los populares */
-document.getElementById("seClear").onclick = function(){ setQuery(""); load(BROWSE[0], 1); };
+/* Limpiar: borra la búsqueda y vuelve al primer listado de la fuente */
+document.getElementById("seClear").onclick = function(){ setQuery(""); load(browseList()[0], 1); };
 function closeSearch(){ stopPrev(); seEl.hidden = true; syncEditor(); }
 document.getElementById("edSearch").onclick = function(){ openSearch(selected); };
 document.getElementById("seClose").onclick = closeSearch;
@@ -1193,34 +1309,44 @@ function errText(e){
   var m = (e && e.message) || "";
   if(m === "noproxy") return "Configurá el proxy para buscar.";
   if(m === "status:403") return "El proxy rechazó el pedido: falta esta dirección en ALLOWED_ORIGINS del worker.";
-  if(m === "status:404") return "Para ver los listados hay que actualizar el worker en Cloudflare con el código nuevo del repo.";
-  if(/^status:5/.test(m)) return "MyInstants no respondió. Probá de nuevo en un rato.";
+  if(m === "status:404") return "Hay que actualizar el worker en Cloudflare con el código nuevo del repo.";
+  if(m === "status:429") return "Freesound limita los pedidos por minuto. Esperá un momento y probá de nuevo.";
+  if(m === "status:503") return "Falta configurar Freesound en el worker (ver README).";
+  if(m === "status:413") return "El archivo original es demasiado grande; usé la preescucha.";
+  if(/^status:5/.test(m)) return (S.source === "freesound" ? "Freesound" : "MyInstants") + " no respondió. Probá de nuevo en un rato.";
   if(navigator.onLine === false) return "Sin conexión. La búsqueda necesita internet.";
   return "No se pudo conectar con el proxy. Revisá la dirección en Proxy.";
 }
-function apiJSON(path){
+function apiJSON(path, headers){
   var base = proxyBase(); if(!base) return Promise.reject(new Error("noproxy"));
-  return fetch(base + path, {cache:"no-store"}).then(function(r){ if(!r.ok) throw new Error("status:" + r.status); return r.json(); });
+  return fetch(base + path, {cache:"no-store", headers:headers || {}}).then(function(r){ if(!r.ok) throw new Error("status:" + r.status); return r.json(); });
 }
-/* Bytes del MP3 vía proxy. Quedan en memoria (los últimos 24) así "Usar" no vuelve a bajar lo que ya escuchaste */
-function getBytes(r){
-  if(bytesCache[r.path]) return Promise.resolve(bytesCache[r.path]);
+/* Bytes del sonido vía proxy. Quedan en memoria (los últimos 24) así "Usar" no vuelve a bajar lo que ya escuchaste.
+   kind "orig" pide el archivo original de Freesound; si no, la preescucha (o el MP3 de MyInstants) */
+function getBytes(r, kind){
+  var key = (kind || "prev") + "|" + r.path;
+  if(bytesCache[key]) return Promise.resolve(bytesCache[key]);
   var base = proxyBase(); if(!base) return Promise.reject(new Error("noproxy"));
-  return fetch(base + "/sound?path=" + encodeURIComponent(r.path)).then(function(res){
+  var url, opts = {};
+  if(r.source !== "freesound") url = base + "/sound?path=" + encodeURIComponent(r.path);
+  else if(kind === "orig"){ url = base + "/fs/download?id=" + r.id; opts.headers = fsHeaders(); }
+  else url = base + "/fs/preview?u=" + encodeURIComponent(r.preview);
+  return fetch(url, opts).then(function(res){
     if(!res.ok) throw new Error("status:" + res.status);
     return res.arrayBuffer();
   }).then(function(ab){
-    bytesCache[r.path] = ab; bytesOrder.push(r.path);
+    bytesCache[key] = ab; bytesOrder.push(key);
     while(bytesOrder.length > 24) delete bytesCache[bytesOrder.shift()];
     return ab;
   });
 }
 
-/* src es una búsqueda {q} o un listado de BROWSE {kind, cat, label} */
+/* src es una búsqueda {q} o un listado de BROWSE {kind, cat, label} / FS_BROWSE {fs, sort, label} */
 function srcLabel(src){
   if(src.q != null) return "“" + src.q + "”";
   return src.label + (src.kind === "trending" || src.kind === "best" ? " en Argentina" : "");
 }
+function fmtCount(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
 function load(src, page){
   if(!proxyBase()){ showCfg(true); cfgMsg("Primero pegá la dirección del proxy.", false); return; }
   if(navigator.onLine === false){ seStatus("Sin conexión. La búsqueda necesita internet.", true); return; }
@@ -1228,15 +1354,18 @@ function load(src, page){
   if(page === 1){ S.src = src; S.results = []; S.more = false; stopPrev(); seList.scrollTop = 0; renderChips(); }
   seStatus(page > 1 ? "Cargando más…" : src.q != null ? "Buscando “" + src.q + "”…" : "Cargando " + srcLabel(src) + "…");
   renderResults();
-  var path = src.q != null ? "/search?q=" + encodeURIComponent(src.q)
+  var fs = S.source === "freesound", path;
+  if(fs) path = "/fs/search?q=" + encodeURIComponent(src.q || "") + "&sort=" + (src.q != null ? "score" : src.sort) + "&short=" + (S.short ? 1 : 0);
+  else path = src.q != null ? "/search?q=" + encodeURIComponent(src.q)
     : "/list?kind=" + src.kind + (src.cat ? "&cat=" + encodeURIComponent(src.cat) : "");
   apiJSON(path + "&page=" + page).then(function(d){
     if(my !== S.req) return;
     var known = {}; S.results.forEach(function(r){ known[r.path] = 1; });
     (d.results || []).forEach(function(r){ if(r && r.path && !known[r.path]){ S.results.push(r); known[r.path] = 1; } });
-    S.page = page; S.more = !!d.hasMore;
+    S.page = page; S.more = !!d.hasMore; S.count = d.count || 0;
     var n = S.results.length;
-    seStatus(!n ? "" : src.q != null ? n + " resultado" + (n === 1 ? "" : "s") + " para " + srcLabel(src) : n + " sonidos · " + srcLabel(src));
+    if(fs) seStatus(!n ? "" : (src.q != null ? fmtCount(S.count) + " resultados para " + srcLabel(src) : srcLabel(src)) + (S.short ? " · hasta 10 s" : ""));
+    else seStatus(!n ? "" : src.q != null ? n + " resultado" + (n === 1 ? "" : "s") + " para " + srcLabel(src) : n + " sonidos · " + srcLabel(src));
   }).catch(function(e){
     if(my === S.req) seStatus(errText(e), true);
   }).then(function(){ if(my === S.req){ S.busy = false; renderResults(); } });
@@ -1244,7 +1373,7 @@ function load(src, page){
 document.getElementById("seForm").addEventListener("submit", function(e){
   e.preventDefault();
   var inp = document.getElementById("seQ"), q = inp.value.trim(); inp.blur();
-  if(q) load({q:q}, 1); else load(BROWSE[0], 1);
+  if(q) load({q:q}, 1); else load(browseList()[0], 1);
 });
 
 function renderResults(){
@@ -1254,6 +1383,7 @@ function renderResults(){
     if(!S.busy){
       var p = document.createElement("p"); p.className = "se-empty";
       p.textContent = !proxyBase() ? "Para buscar hace falta configurar el proxy una sola vez. Las instrucciones están en el README del repositorio."
+        : S.source === "freesound" && S.caps && !S.caps.search ? "Freesound todavía no está configurado en el worker. Los pasos están en el README del repositorio."
         : S.src && S.src.q != null ? "No hay resultados para “" + S.src.q + "”. Probá con otras palabras; en inglés suele haber más."
         : S.src ? "No hay sonidos en este listado."
         : "Escribí qué sonido buscás o elegí un listado. Tocá el círculo para escucharlo y Usar para cargarlo en el pad.";
@@ -1277,9 +1407,20 @@ function itemEl(r){
   pl.setAttribute("aria-label", "Escuchar " + r.title);
   pl.onclick = function(){ togglePrev(r, pl); };
   var t = document.createElement("span"); t.className = "se-title"; t.textContent = r.title; t.title = r.title;
+  var info = t;
+  if(r.source === "freesound"){
+    info = document.createElement("div"); info.className = "se-info"; info.appendChild(t);
+    var m = document.createElement("span"); m.className = "se-meta";
+    var d = r.duration || 0, parts = [];
+    if(r.type) parts.push(r.type.toUpperCase() + (r.samplerate ? " " + (r.samplerate/1000).toString().replace(".", ",") + " kHz" : ""));
+    if(r.user) parts.push(r.user);
+    m.appendChild(document.createTextNode((d < 60 ? d.toFixed(1) + " s" : fmtT(d)) + " · "));
+    var lic = document.createElement("span"); lic.textContent = r.license || "?"; if(/NC/.test(r.license || "")) lic.className = "nc";
+    m.appendChild(lic); m.appendChild(document.createTextNode(parts.length ? " · " + parts.join(" · ") : "")); info.appendChild(m);
+  }
   var use = document.createElement("button"); use.type = "button"; use.className = "btn se-use"; use.textContent = "Usar";
   use.onclick = function(){ useResult(r, use); };
-  row.appendChild(pl); row.appendChild(t); row.appendChild(use);
+  row.appendChild(pl); row.appendChild(info); row.appendChild(use);
   return row;
 }
 
@@ -1313,16 +1454,43 @@ function useResult(r, btn){
   if(selected < 0) return;
   unlock(); stopPrev();
   btn.disabled = true; btn.textContent = "Bajando…";
-  var name = r.title + ".mp3", cell = cellFor(selected);
+  var cell = cellFor(selected), fs = r.source === "freesound";
   var autoLabel = cell.sound ? (soundNames[cell.sound] || "").replace(/^Demo · /, "").replace(/\.[a-z0-9]+$/i, "").slice(0,24) : "";
-  getBytes(r).then(function(ab){
-    btn.textContent = "Cargando…";
-    return storeSound(ab, name, "audio/mpeg").catch(function(){ throw new Error("decode"); });
-  }).then(function(res){
+  var meta = fs ? {source:"freesound", id:r.id, user:r.user, license:r.license, url:"https://freesound.org/s/" + r.id + "/"} : {source:"myinstants", path:r.path};
+  var wantOrig = fs && settings.fsSession && S.fsUser && S.caps && S.caps.originals && FS_DECODABLE.test(r.type || "") && !(r.filesize > FS_MAX_ORIG);
+  var note = "", got = "";
+  function viaPreview(){
+    got = fs ? "preescucha MP3 128 kbps" : "";
+    return getBytes(r).then(function(ab){
+      btn.textContent = "Cargando…";
+      return storeSound(ab, r.title + ".mp3", "audio/mpeg", meta).catch(function(){ throw new Error("decode"); });
+    });
+  }
+  var job;
+  if(wantOrig){
+    job = getBytes(r, "orig").then(function(ab){
+      btn.textContent = "Cargando…";
+      got = "original " + r.type.toUpperCase() + (r.samplerate ? " " + (r.samplerate/1000).toString().replace(".", ",") + " kHz" : "");
+      return storeSound(ab, r.title + "." + r.type.toLowerCase(), "audio/" + r.type.toLowerCase(), meta);
+    }).catch(function(e){
+      var m = (e && e.message) || "";
+      if(m === "status:401"){ settings.fsSession = ""; S.fsUser = null; saveSettings(); renderAcct(); note = "La sesión de Freesound venció; usé la preescucha. Volvé a conectar para bajar originales."; }
+      else if(m === "status:413") note = "El original es demasiado grande; usé la preescucha.";
+      else note = "No se pudo usar el original; usé la preescucha.";
+      btn.textContent = "Bajando…";
+      return viaPreview();
+    });
+  } else {
+    if(fs && settings.fsSession && S.fsUser && r.type && !FS_DECODABLE.test(r.type)) note = "El original es " + r.type.toUpperCase() + ", que este iPad no lee; usé la preescucha.";
+    job = viaPreview();
+  }
+  job.then(function(res){
     var st = document.getElementById("seTrim").checked ? leadingSilence(res.buf) : 0;
+    var name = soundNames[res.id];
+    var extra = fs ? " · Freesound · " + (got ? got + " · " : "") + r.user + " · " + (r.license || "") : "";
     edMsg(res.saved
-      ? describe(name, res.buf) + (st ? " · silencio inicial quitado: " + Math.round(st*1000) + " ms" : "")
-      : "Se cargó, pero no hubo lugar para guardarlo en el iPad.", res.saved);
+      ? (note ? note + " " : "") + describe(name, res.buf) + extra + (st ? " · silencio inicial quitado: " + Math.round(st*1000) + " ms" : "")
+      : "Se cargó, pero no hubo lugar para guardarlo en el iPad.", res.saved && !note);
     closeSearch();
     var useTitle = !cell.label || cell.label === autoLabel;
     return assign(res.id, {label: useTitle ? r.title : null, start: st});
@@ -1822,6 +1990,8 @@ openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s
   if(s){
     if(typeof s.knob === "number") setKnob(s.knob, false);
     if(typeof s.proxy === "string" && s.proxy) settings.proxy = s.proxy;
+    if(typeof s.fsSession === "string") settings.fsSession = s.fsSession;
+    if(s.seSource === "freesound" || s.seSource === "myinstants") settings.seSource = s.seSource;
   }
   return idb.get("meta", "current");
 }).then(function(m){

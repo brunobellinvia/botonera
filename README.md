@@ -1,8 +1,40 @@
 # Botonera
 
-Pad sampler táctil para iPad. Grilla de pads configurable de 1×1 a 12×12, un sonido por pad cargado desde Archivos o desde MyInstants, recorte y fade out por pad, presets guardados en el dispositivo, volumen general con medidor de nivel (fader en tablet, knob en celular) y botón Panic.
+Pad sampler táctil para iPad. Grilla de pads configurable de 1×1 a 12×12, un sonido por pad cargado desde Archivos, MyInstants o Freesound, recorte y fade out por pad, presets guardados en el dispositivo, volumen general con medidor de nivel (fader en tablet, knob en celular) y botón Panic.
 
 Se instala como app desde Safari y funciona sin internet. Los sonidos se pueden recortar por pad y buscar en MyInstants (esto último necesita conexión).
+
+## Freesound
+
+En **Buscar sonido**, el selector de arriba cambia entre MyInstants y Freesound. Freesound tiene grabaciones de mejor calidad, con duración, formato, frecuencia de muestreo, autor y licencia en cada resultado. **Cortos (hasta 10 s)** viene activado; tocalo para ver también sonidos largos.
+
+Hay dos niveles:
+
+- **Solo con la API key:** búsqueda y preescucha. Al tocar **Usar** se carga la preescucha en MP3 de 128 kbps.
+- **Con tu cuenta conectada:** **Usar** baja el archivo original (WAV, AIFF, FLAC, MP3 o M4A, hasta 40 MB). Los originales en OGG se reemplazan por la preescucha, porque Safari de iOS 15 no decodifica OGG.
+
+### Configurar Freesound (una sola vez)
+
+1. **Credenciales de la API.** Con tu sesión de Freesound abierta, entrá a [freesound.org/apiv2/apply](https://freesound.org/apiv2/apply) y creá una credencial nueva. En **Callback URL** poné exactamente:
+   `https://botonera-myinstants.brunebell8.workers.dev/fs/callback`
+   Freesound te da un **Client id** y un **Client secret/Api key**.
+2. **Secretos del worker.** En Cloudflare: **Workers & Pages → botonera-myinstants → Settings → Variables and secrets → Add**.
+   - `FREESOUND_KEY`, de tipo **Secret**, con el Client secret/Api key.
+   - `FREESOUND_CLIENT_ID`, con el Client id.
+3. **Almacenamiento para el login.** En **Storage & databases → Workers KV**, creá un namespace (por ejemplo `botonera-freesound`). Después, en el worker: **Settings → Bindings → Add → KV namespace**, con el nombre de variable `FS_KV` y ese namespace.
+4. **Código nuevo.** **Edit code**, reemplazá todo por `worker/myinstants-proxy.js` y tocá **Deploy**.
+
+Con solo el paso 2 (`FREESOUND_KEY`) y el 4 ya funcionan la búsqueda y la preescucha. Los pasos 1 a 3 completos habilitan bajar originales.
+
+La API key queda guardada como secreto en Cloudflare, nunca en este repositorio, que es público.
+
+### Conectar tu cuenta
+
+En la app, con Freesound elegido, tocá **Conectar Freesound**. Se abre Safari para que entres y autorices; cuando termina, volvé a la Botonera, que en unos segundos muestra **Conectado como …**. El worker guarda los tokens en el KV y los renueva solo. La app guarda una clave de sesión propia; **Desconectar** la borra. También podés revocar el acceso desde la configuración de tu cuenta de Freesound.
+
+### Licencias
+
+Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide mencionar al autor cuando publiques algo que lo use. **CC BY-NC** (en ámbar) no permite uso comercial: revisalo antes de usar esos sonidos en un show pago. La licencia y el autor quedan guardados junto con cada sonido.
 
 ## Igualar volumen
 

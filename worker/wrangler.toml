@@ -2,3 +2,12 @@
 name = "botonera-myinstants"
 main = "myinstants-proxy.js"
 compatibility_date = "2026-01-01"
+
+# Login de Freesound para bajar originales (ver README). Reemplazá el id por el de tu namespace.
+# [[kv_namespaces]]
+# binding = "FS_KV"
+# id = "ID_DEL_NAMESPACE"
+
+# Los secretos se cargan aparte:
+#   npx wrangler secret put FREESOUND_KEY
+#   npx wrangler secret put FREESOUND_CLIENT_ID
