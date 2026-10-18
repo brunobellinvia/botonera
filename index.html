@@ -337,7 +337,7 @@ body{margin:0}
   <header><h2>Presets</h2><button class="btn" id="prClose">Cerrar</button></header>
   <div class="field"><span>Botonera actual</span>
     <div class="row"><input class="txt" id="prName" maxlength="40" autocomplete="off" aria-label="Nombre del preset"></div>
-    <div class="row"><button class="btn primary" id="prSave">Guardar</button><button class="btn" id="prSaveNew">Guardar como nuevo</button></div>
+    <div class="row"><button class="btn" id="prSave" hidden>Guardar</button><button class="btn" id="prSaveNew">Guardar una copia</button></div>
     <p class="msg ok" id="prMsg" hidden></p>
   </div>
   <div class="field" id="updBox" hidden><span>Actualización</span><div class="upd"><span>Hay una versión nueva de la app.</span><button class="btn primary" id="updBtn">Actualizar ahora</button></div></div>
@@ -876,10 +876,42 @@ var mode = "play";
 var selected = -1;
 var saveTimer = null;
 
+/* Guardado automático: cualquier cambio (cargar un sonido, recortar, renombrar, mover pads…) se guarda
+   en la botonera abierta. Si todavía no era una botonera guardada (por ejemplo, el kit demo), se crea una. */
+var autosaveFail = false;
 function markDirty(){
   dirty = true; document.getElementById("dirty").hidden = false;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(function(){ idb.put("meta", {id:"current", state:state, dirty:dirty}).catch(function(){}); }, 400);
+  saveTimer = setTimeout(autosave, 500);
+}
+function autosave(){
+  if(!state.id){
+    var base = !state.name || state.name === "Kit demo" ? "Mi botonera" : state.name;
+    state.id = uid("p_");
+    return idb.all("presets").then(function(list){
+      var names = {}; list.forEach(function(x){ names[x.name] = 1; });
+      var n = 1, name = base; while(names[name]) name = base + " " + (++n);
+      state.name = name;
+    }, function(){ state.name = base; }).then(function(){
+      document.getElementById("presetName").textContent = state.name;
+      return autosave();
+    });
+  }
+  var rec = clone(state); rec.updated = Date.now();
+  return idb.put("presets", rec).then(function(){
+    autosaveFail = false; dirty = false; document.getElementById("dirty").hidden = true;
+    return idb.put("meta", {id:"current", state:state, dirty:false});
+  }).catch(function(){
+    autosaveFail = true;
+    idb.put("meta", {id:"current", state:state, dirty:true}).catch(function(){});
+  });
+}
+/* Le pide a iOS que no borre los datos de la app cuando falta espacio */
+function askPersist(){
+  try{
+    if(navigator.storage && navigator.storage.persist && navigator.storage.persisted)
+      navigator.storage.persisted().then(function(p){ if(!p) return navigator.storage.persist(); }).catch(function(){});
+  }catch(e){}
 }
 function setClean(){
   dirty = false; document.getElementById("dirty").hidden = true;
@@ -1186,6 +1218,7 @@ function assign(id, opts){
 }
 /* Decodifica y guarda un sonido nuevo; devuelve su id. Si no se puede decodificar, rechaza */
 function storeSound(ab, name, type, meta){
+  askPersist();
   return decode(ab.slice(0)).then(function(buf){
     var id = uid("s_");
     buffers[id] = buf; soundNames[id] = name;
@@ -1966,7 +1999,7 @@ document.getElementById("trPlay").onclick = function(){
 function prMsg(t){ var m = document.getElementById("prMsg"); m.hidden = !t; m.textContent = t || ""; }
 function openPresets(){
   document.getElementById("prName").value = state.name || "";
-  prMsg(dirty ? "Hay cambios sin guardar en esta botonera." : "");
+  prMsg(autosaveFail ? "No se pudo guardar en el iPad: puede que esté sin espacio." : "Los cambios se guardan solos en esta botonera.");
   renderList(); openSheet("presets");
 }
 document.getElementById("presetsBtn").onclick = openPresets;
@@ -2023,7 +2056,7 @@ function renderList(){
     });
   }).catch(function(){});
 }
-document.getElementById("prDemo").onclick = function(){ loadPreset(demoPreset()).then(function(){ markDirty(); closeSheets(); }); };
+document.getElementById("prDemo").onclick = function(){ loadPreset(demoPreset()).then(function(){ closeSheets(); }); };
 
 /* exportar / importar */
 function ab2b64(ab){ var u = new Uint8Array(ab), s = "", ch = 0x8000; for(var i=0;i<u.length;i+=ch) s += String.fromCharCode.apply(null, u.subarray(i, i+ch)); return btoa(s); }
@@ -2067,6 +2100,7 @@ while(state.cells.length < MAX*MAX) state.cells.push(null);
 renderGrid(); setMode("play");
 loadSoundsFor(state).then(function(){ for(var i in padEls) paintPad(+i); normAll(); });
 setKnob(knobPos, false);
+askPersist();
 openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s){
   if(s){
     if(typeof s.knob === "number") setKnob(s.knob, false);

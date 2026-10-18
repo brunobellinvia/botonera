@@ -110,6 +110,9 @@ Para comprobar que quedó offline: activá modo avión, cerrá la app desde el s
 
 ## Datos
 
+- **Guardado automático:** cada cambio (cargar un sonido, recortar, renombrar, mover pads, cambiar la grilla) se guarda solo en la botonera abierta. Si estabas en el kit demo, se crea una botonera nueva ("Mi botonera", "Mi botonera 2"…). **Guardar una copia**, en Presets, la duplica.
+- La app le pide a iOS almacenamiento persistente para que no borre sus datos cuando falta espacio. Igual conviene exportar un respaldo de vez en cuando.
+
 - Los sonidos y los presets se guardan dentro de la app instalada. Ese almacenamiento es aparte del de Safari: lo que cargues en Safari no aparece en la app, y al revés.
 - Si borrás la app de la pantalla de inicio, se borran sus datos. Antes, exportá tus presets.
 - **Exportar** (en Presets) abre Compartir. Elegí **Guardar en Archivos**. El `.json` lleva la grilla y los sonidos adentro.
