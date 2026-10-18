@@ -43,7 +43,7 @@ const CATEGORIES = ["anime & manga", "games", "memes", "movies", "music", "polit
 const FS_API = "https://freesound.org/apiv2";
 const FS_PAGE = 30;
 const FS_MAX_BYTES = 40 * 1024 * 1024;
-const FS_FIELDS = "id,name,previews,duration,type,samplerate,license,username,filesize";
+const FS_FIELDS = "id,name,tags,previews,duration,type,samplerate,license,username,filesize";
 const FS_SORTS = ["score", "downloads_desc", "rating_desc", "created_desc", "duration_asc"];
 
 export default {
@@ -238,7 +238,8 @@ export function fsItem(x) {
   return {
     source: "freesound", id: x.id, path: "fs:" + x.id, title: String(x.name || x.id).replace(/\.(wav|aiff?|flac|mp3|ogg|m4a)$/i, ""),
     preview: pv, duration: x.duration || 0, type: x.type || "", samplerate: x.samplerate || 0,
-    license: fsLicense(x.license), user: x.username || "", filesize: x.filesize || 0
+    license: fsLicense(x.license), user: x.username || "", filesize: x.filesize || 0,
+    tags: Array.isArray(x.tags) ? x.tags.slice(0, 6).map(String) : []
   };
 }
 function fsLicense(l) {

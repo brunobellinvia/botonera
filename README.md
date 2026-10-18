@@ -40,6 +40,12 @@ Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide me
 
 En **Editar**, mantené apretado un pad 0,4 s: se levanta y los demás tiemblan, como en la pantalla de inicio de iOS. Arrastralo sobre otro pad y soltalo: intercambian lugar con todo su contenido (sonido, recorte, color y opciones). Si lo soltás fuera de la grilla, vuelve a su lugar. Un toque corto sigue abriendo el editor del pad.
 
+## Nombre automático
+
+Cada vez que cargás un sonido en un pad (desde Archivos, MyInstants, Freesound o la lista de ya cargados), el pad toma solo un nombre nuevo, aunque ya tuviera otro. El nombre sale del título del sonido, limpio: sin extensión, sin números de serie ni etiquetas de relleno ("Sound Effect", "HQ", "[MP3]", "320kbps"), con los guiones bajos y el camelCase separados, y cortado en una palabra entera hasta 24 letras. Por ejemplo, `kickDrum_808_v2.wav` queda **Kick Drum 808** y "Vine Boom Sound Effect (HQ)" queda **Vine Boom**.
+
+Si el título no dice qué es (Audio 2, Grabación, Hit, Loop, 01…), suma una aclaración corta: lo que buscaste, el listado de donde salió o una etiqueta de Freesound. Un "Hit" buscado como "tambor" queda **Tambor hit**. Lo podés cambiar a mano en **Nombre del pad**, y se guarda solo.
+
 ## Igualar volumen
 
 Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −12 LUFS: baja los sonidos muy comprimidos y sube los bajitos, hasta +15 dB y sin que el pico pase de −1 dBFS. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. La preescucha del buscador usa el mismo cálculo. En el editor se ve cuánto se corrigió.

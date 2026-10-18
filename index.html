@@ -452,6 +452,7 @@ var padAnFrom = null;
 var playing = [];                    // todas las voces sonando
 var buffers = {};      // soundId -> AudioBuffer
 var soundNames = {};   // soundId -> nombre visible
+var soundMeta = {};    // soundId -> origen, etiquetas y búsqueda (para nombrar el pad)
 var padGains = [];     // GainNode por pad
 var voices = [];       // última voz por pad
 var unlocked = false;
@@ -1199,7 +1200,7 @@ function fillPicker(){
     var sel = document.getElementById("edPick"); sel.textContent = "";
     var o = document.createElement("option"); o.value = ""; o.textContent = "Usar un sonido ya cargado…"; sel.appendChild(o);
     list.sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(s){
-      soundNames[s.id] = s.name;
+      soundNames[s.id] = s.name; if(s.meta) soundMeta[s.id] = s.meta;
       var op = document.createElement("option"); op.value = s.id; op.textContent = s.name; sel.appendChild(op);
     });
     DEMO.forEach(function(d){
@@ -1207,13 +1208,64 @@ function fillPicker(){
     });
   }).catch(function(){});
 }
-/* opts.label: nombre que se le pone al pad; opts.start: inicio del recorte en segundos */
+/* Nombre del pad a partir del título del sonido: saca extensión, números de serie, etiquetas de relleno
+   ("sound effect", "HQ", "[MP3]"…) y separadores. Si el título no dice qué es (Audio, Grabación, Hit, Loop…),
+   suma una aclaración corta: una etiqueta de Freesound, la búsqueda o el listado de donde salió. */
+var NM_JUNK = /\b(sound ?effects?|sfx|efectos? de sonido|soundboard|mp3|wav|meme|memes|myinstants|free(sound)?|download|descargar|no copyright|sin copyright|copyright free|royalty free|hq|hd|4k|1080p|320 ?kbps|128 ?kbps|\d+ ?k?hz|\d+ ?bits?|stereo|mono|est[eé]reo|final|master(ed)?|edit(ed)?|v\d+|copy|copia|original|full|completo|oficial|official|audio oficial|official audio)\b/gi;
+var NM_GENERIC = /^(audio|sound|sonido|clip|track|pista|take|toma|rec|recording|new recording|grabaci[oó]n|nueva grabaci[oó]n|nota de voz|voice|voz|memo|voice memo|untitled|sin t[ií]tulo|test|prueba|sample|muestra|hit|one ?shot|shot|loop|fx|effect|efecto|noise|ruido|ambience|ambiente|impact|golpe|misc|various|varios|audio whatsapp|file|archivo)( \d+)?$/i;
+var NM_TAGSKIP = /record|zoom|tascam|h\dn|\bmic|microphone|\d|^(sound effects|memes|music|viral)$/i;
+function nmClean(t){
+  t = String(t || "").replace(/^Demo · /, "").replace(/^.*[\/\\]/, "");
+  t = t.replace(/\.(wav|wave|mp3|m4a|aac|aif|aiff|caf|flac|ogg|oga|opus|mp4|webm)$/i, "");
+  if(/^(AUD|PTT)-\d{8}-WA\d+$/i.test(t)) return "Audio WhatsApp";
+  t = t.replace(/^\d{3,}__[^_]+__/, "");                       /* 123456__usuario__nombre (Freesound) */
+  t = t.replace(/([a-z])([A-Z])/g, "$1 $2");                     /* camelCase */
+  t = t.replace(/[_]+|(\s-\s)|\s*[|•·]\s*/g, " ").replace(/(\D)-|-(\D)/g, "$1 $2").replace(/#(?=\d)/g, "").replace(/\.(?=\D)/g, " ");
+  t = t.replace(/[\[(【{][^\])】}]*[\])】}]/g, function(m){ NM_JUNK.lastIndex = 0; return NM_JUNK.test(m) || /^\W*\d*\W*$/.test(m) ? " " : m; });
+  NM_JUNK.lastIndex = 0;
+  t = t.replace(NM_JUNK, " ");
+  t = t.replace(/\b(19|20)\d{6}(\s?\d{4,6})?\b/g, " ");          /* fechas tipo 20231010 1530 */
+  t = t.replace(/\s+\(?\d+\)?$/, function(m){ return / \d{1,2}$/.test(m) ? m : " "; });  /* "(1)" o números largos al final */
+  t = t.replace(/^[\s\-–—:,.#'"]+|[\s\-–—:,.#'"]+$/g, "").replace(/\s{2,}/g, " ").trim();
+  if(t.length > 3 && t === t.toUpperCase() && /[A-Z]{4}/.test(t)) t = t.toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function nmFit(t, max){
+  if(t.length <= max) return t;
+  var cut = t.slice(0, max + 1), sp = cut.lastIndexOf(" ");
+  return (sp >= max*0.55 ? cut.slice(0, sp) : t.slice(0, max)).replace(/[\s\-–—:,.]+$/, "");
+}
+/* hints: lista de aclaraciones posibles, en orden de preferencia (etiquetas, búsqueda, listado) */
+function smartName(title, hints){
+  var base = nmClean(title), raw = String(title || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim();
+  if(!base) base = raw.slice(0, 24);
+  var generic = !base || NM_GENERIC.test(base) || /^[\d\s]+$/.test(base) || base.length < 3;
+  if(generic && hints){
+    var low = base.toLowerCase();
+    for(var k=0; k<hints.length; k++){
+      var h = nmClean(hints[k]);
+      if(!h || NM_GENERIC.test(h) || NM_TAGSKIP.test(h) || low.indexOf(h.toLowerCase()) >= 0) continue;
+      h = h.charAt(0).toUpperCase() + h.slice(1);
+      var num = (base.match(/\d+$/) || [""])[0], word = base.replace(/\s*\d+$/, "");
+      /* "Hit" + snare → "Snare hit"; "Audio 2" + risa → "Risa 2"; "01" + campana → "Campana" */
+      if(word && word.length <= 8 && word.indexOf(" ") < 0 && !num && /^(hit|shot|loop|fx|noise|ruido|golpe|impact|ambience|ambiente|one ?shot)$/i.test(word))
+        return nmFit(h + " " + word.toLowerCase(), 24);
+      return nmFit(h, num && word ? 20 : 24) + (num && word ? " " + num : "");
+    }
+  }
+  return nmFit(base || "Sonido", 24);
+}
+function soundLabel(id){
+  var rec = soundMeta[id] || {};
+  return smartName(soundNames[id] || "", (rec.hint ? [rec.hint] : []).concat(rec.tags || []));
+}
+/* opts.label: nombre que se le pone al pad; opts.start: inicio del recorte en segundos.
+   Al cargar un sonido, el pad siempre toma el nombre del sonido nuevo */
 function assign(id, opts){
   opts = opts || {};
   var i = selected, cell = cellFor(i);
   cell.sound = id; cell.start = opts.start || null; cell.end = null; cell.fadeOut = null; cell.choke = true;
-  if(opts.label) cell.label = opts.label.slice(0,24);
-  else if(!cell.label) cell.label = (soundNames[id] || "").replace(/^Demo · /, "").replace(/\.[a-z0-9]+$/i, "").slice(0,24);
+  cell.label = opts.label || soundLabel(id);
   return ensureSound(id).then(function(){ ensureNorm(i); paintPad(i); syncEditor(); markDirty(); if(buffers[id]) trigger(i); });
 }
 /* Decodifica y guarda un sonido nuevo; devuelve su id. Si no se puede decodificar, rechaza */
@@ -1221,7 +1273,7 @@ function storeSound(ab, name, type, meta){
   askPersist();
   return decode(ab.slice(0)).then(function(buf){
     var id = uid("s_");
-    buffers[id] = buf; soundNames[id] = name;
+    buffers[id] = buf; soundNames[id] = name; if(meta) soundMeta[id] = meta;
     return idb.put("sounds", {id:id, name:name, type:type, size:ab.byteLength, data:ab, meta:meta || null})
       .then(function(){ return true; }, function(){ return false; })
       .then(function(saved){ return fillPicker().then(function(){ return {id:id, buf:buf, saved:saved}; }); });
@@ -1569,8 +1621,10 @@ function useResult(r, btn){
   unlock(); stopPrev();
   btn.disabled = true; btn.textContent = "Bajando…";
   var cell = cellFor(selected), fs = r.source === "freesound";
-  var autoLabel = cell.sound ? (soundNames[cell.sound] || "").replace(/^Demo · /, "").replace(/\.[a-z0-9]+$/i, "").slice(0,24) : "";
-  var meta = fs ? {source:"freesound", id:r.id, user:r.user, license:r.license, url:"https://freesound.org/s/" + r.id + "/"} : {source:"myinstants", path:r.path};
+  var hint = S.src ? (S.src.q != null ? S.src.q : S.src.cat || "") : "";
+  var hints = (hint ? [hint] : []).concat(r.tags || []);
+  var meta = fs ? {source:"freesound", id:r.id, user:r.user, license:r.license, url:"https://freesound.org/s/" + r.id + "/", tags:(r.tags || []).slice(0, 6), hint:hint}
+                : {source:"myinstants", path:r.path, hint:hint};
   var wantOrig = fs && settings.fsSession && S.fsUser && S.caps && S.caps.originals && FS_DECODABLE.test(r.type || "") && !(r.filesize > FS_MAX_ORIG);
   var note = "", got = "";
   function viaPreview(){
@@ -1606,8 +1660,7 @@ function useResult(r, btn){
       ? (note ? note + " " : "") + describe(name, res.buf) + extra + (st ? " · silencio inicial quitado: " + Math.round(st*1000) + " ms" : "")
       : "Se cargó, pero no hubo lugar para guardarlo en el iPad.", res.saved && !note);
     closeSearch();
-    var useTitle = !cell.label || cell.label === autoLabel;
-    return assign(res.id, {label: useTitle ? r.title : null, start: st});
+    return assign(res.id, {label: smartName(r.title, hints), start: st});
   }).catch(function(e){
     btn.disabled = false; btn.textContent = "Usar";
     seStatus(e && e.message === "decode" ? "No se pudo leer el audio de “" + r.title + "”. Probá con otro." : errText(e), true);
@@ -2065,7 +2118,7 @@ document.getElementById("prExport").onclick = function(){
   var ids = {}; state.cells.forEach(function(c){ if(c && c.sound && c.sound.indexOf("demo:") !== 0) ids[c.sound] = 1; });
   Promise.all(Object.keys(ids).map(function(id){ return idb.get("sounds", id); })).then(function(recs){
     var out = {format:"botonera", version:1, preset:clone(state),
-      sounds: recs.filter(Boolean).map(function(r){ return {id:r.id, name:r.name, type:r.type, data:ab2b64(r.data)}; })};
+      sounds: recs.filter(Boolean).map(function(r){ return {id:r.id, name:r.name, type:r.type, meta:r.meta || null, data:ab2b64(r.data)}; })};
     var name = (state.name || "botonera").replace(/[^\w\- ]+/g,"").trim() + ".json";
     var blob = new Blob([JSON.stringify(out)], {type:"application/json"});
     var kb = Math.round(blob.size/1024) + " KB";
@@ -2087,7 +2140,7 @@ document.getElementById("prImport").onchange = function(e){
   rd.onload = function(){
     try{
       var j = JSON.parse(rd.result); if(j.format !== "botonera") throw 0;
-      Promise.all((j.sounds || []).map(function(s){ soundNames[s.id] = s.name; return idb.put("sounds", {id:s.id, name:s.name, type:s.type, data:b642ab(s.data)}); }))
+      Promise.all((j.sounds || []).map(function(s){ soundNames[s.id] = s.name; if(s.meta) soundMeta[s.id] = s.meta; return idb.put("sounds", {id:s.id, name:s.name, type:s.type, meta:s.meta || null, data:b642ab(s.data)}); }))
         .then(function(){ var p = j.preset; p.id = p.id || uid("p_"); p.updated = Date.now(); return idb.put("presets", p).then(function(){ return loadPreset(p); }); })
         .then(function(){ prMsg("Importado: " + j.preset.name); renderList(); });
     }catch(err){ prMsg("Ese archivo no es una botonera exportada desde acá."); }
