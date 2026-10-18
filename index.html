@@ -1052,6 +1052,27 @@ if("ontouchstart" in window){
 }
 document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
 
+/* Teclado de iOS: al escribir en un campo, Safari corre la página para mostrarlo y, al cerrarse el teclado,
+   puede quedar corrida aunque se vea en su lugar. Entonces los toques caen desplazados respecto de lo que se ve.
+   Cuando se cierra el teclado, la página vuelve a su posición. */
+function isField(el){ return !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(checkbox|radio|range|file|button)$/.test(el.type || ""); }
+function resetViewport(){
+  if(isField(document.activeElement)) return;
+  if(window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  if(document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
+  if(document.body.scrollTop) document.body.scrollTop = 0;
+}
+document.addEventListener("focusout", function(e){
+  if(!isField(e.target)) return;
+  setTimeout(resetViewport, 60); setTimeout(resetViewport, 400);
+});
+if(window.visualViewport) window.visualViewport.addEventListener("resize", function(){ setTimeout(resetViewport, 60); });
+window.addEventListener("scroll", function(){ if(!isField(document.activeElement)) resetViewport(); }, {passive:true});
+/* Enter en un campo de texto cierra el teclado */
+document.addEventListener("keydown", function(e){
+  if(e.key === "Enter" && isField(e.target) && e.target.tagName === "INPUT" && !e.target.form) e.target.blur();
+});
+
 /* ---------- modo ---------- */
 function setMode(m){
   mode = m;
