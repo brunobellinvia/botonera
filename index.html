@@ -313,6 +313,7 @@ body{margin:0}
   <header><h2 id="edTitle">Pad A1</h2><button class="btn" id="edClose">Listo</button></header>
   <div class="field"><span>Sonido</span>
     <div class="cur none" id="edCur">Sin sonido</div>
+    <p class="foot" id="edCh" hidden></p>
     <div class="row">
       <button class="btn primary big" id="edSearch">Buscar sonido</button>
       <button class="btn trim-btn" id="edTrim">Recortar</button>
@@ -353,6 +354,7 @@ body{margin:0}
       <button class="btn" id="prDemo">Cargar kit demo</button>
     </div>
     <p class="foot">Exportar arma un .json con la grilla y los sonidos adentro. En el iPad se abre Compartir: elegí "Guardar en Archivos".</p>
+    <p class="foot" id="appVer" hidden></p>
   </div>
 </section>
 
@@ -452,9 +454,13 @@ var masterAn = ctx.createAnalyser(); masterAn.fftSize = 1024;
 master.connect(panicGain); panicGain.connect(masterAn); masterAn.connect(ctx.destination);
 /* Salida mono: suma izquierda y derecha y manda lo mismo a los dos lados. Sirve cuando el iPad va a una consola
    o un parlante con un cable mono, que solo toma el canal izquierdo o suma los dos */
-var monoNode = ctx.createGain();
-try { monoNode.channelCount = 1; monoNode.channelCountMode = "explicit"; monoNode.channelInterpretation = "speakers"; } catch(e){}
-monoNode.connect(masterAn);
+/* La suma se arma a mano (separar canales → sumar a la mitad → mandar a izquierda y derecha), sin depender de
+   cómo cada navegador mezcla los canales */
+var monoNode = ctx.createChannelSplitter(2), monoSum = ctx.createGain(), monoOut = ctx.createChannelMerger(2);
+monoSum.gain.value = 0.5;
+monoNode.connect(monoSum, 0); monoNode.connect(monoSum, 1);
+monoSum.connect(monoOut, 0, 0); monoSum.connect(monoOut, 0, 1);
+monoOut.connect(masterAn);
 var monoOn = false;
 function setMono(on){
   on = !!on; if(on === monoOn) return; monoOn = on;
@@ -470,6 +476,24 @@ function antiphase(buf){
   var sum = 0, dif = 0;
   for(var j=0;j<n;j+=2){ var a = L[j] + R[j], b = L[j] - R[j]; sum += a*a; dif += b*b; }
   return dif > 1e-6 && sum < dif*0.25;
+}
+/* Cómo están grabados los canales: para el editor y para entender por qué un pad no suena en una consola */
+var chInfo = {};
+function channelInfo(id){
+  if(chInfo[id]) return chInfo[id];
+  var buf = buffers[id]; if(!buf) return "";
+  if(buf.numberOfChannels < 2) return chInfo[id] = "Mono";
+  var L = buf.getChannelData(0), R = buf.getChannelData(1), n = Math.min(buf.length, Math.round(30*buf.sampleRate));
+  var l = 0, r = 0, sum = 0, dif = 0;
+  for(var j=0;j<n;j+=2){ var a = L[j], b = R[j]; l += a*a; r += b*b; sum += (a+b)*(a+b); dif += (a-b)*(a-b); }
+  var t;
+  if(l + r < 1e-9) t = "Estéreo, en silencio";
+  else if(l < r*0.001) t = "Estéreo, sonido solo en el canal derecho: en mono por cable no suena sin Salida mono";
+  else if(r < l*0.001) t = "Estéreo, sonido solo en el canal izquierdo";
+  else if(dif < sum*0.0001) t = "Estéreo con los dos canales iguales";
+  else if(sum < dif*0.25) t = "Estéreo con un canal invertido: al sumarse en mono se anula";
+  else t = "Estéreo";
+  return chInfo[id] = t;
 }
 function monoCheck(id){
   if(antiChecked[id] || !buffers[id]) return;
@@ -1210,6 +1234,8 @@ function syncEditor(){
   var cur = document.getElementById("edCur");
   cur.textContent = cell.sound ? (soundNames[cell.sound] || cell.sound) : "Sin sonido";
   cur.classList.toggle("none", !cell.sound);
+  var ch = document.getElementById("edCh"), ci = cell.sound ? channelInfo(cell.sound) : "";
+  ch.hidden = !ci; ch.textContent = ci ? "Canales: " + ci + (monoOn ? " · Salida mono activada" : "") : "";
   document.getElementById("edLabel").value = cell.label || "";
   document.getElementById("edGain").value = Math.round((cell.gain == null ? 1 : cell.gain)*100);
   document.getElementById("edGainOut").textContent = Math.round((cell.gain == null ? 1 : cell.gain)*100) + "%";
@@ -2218,6 +2244,8 @@ openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s
   var box = document.getElementById("updBox"), btn = document.getElementById("updBtn"), waiting = null, reloading = false;
   function offer(w){ waiting = w; box.hidden = false; document.getElementById("presetsBtn").classList.add("has-upd"); }
   btn.onclick = function(){ if(waiting) waiting.postMessage("skipWaiting"); };
+  navigator.serviceWorker.addEventListener("message", function(e){ if(e.data && e.data.version){ var v = document.getElementById("appVer"); v.textContent = "Versión de la app: " + e.data.version; v.hidden = false; } });
+  navigator.serviceWorker.ready.then(function(){ var c = navigator.serviceWorker.controller; if(c) c.postMessage("version"); });
   navigator.serviceWorker.addEventListener("controllerchange", function(){ if(reloading) return; reloading = true; location.reload(); });
   navigator.serviceWorker.register("sw.js").then(function(reg){
     if(reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
