@@ -1,13 +1,16 @@
-# Para publicar desde la terminal: cd worker && npx wrangler deploy
+# Cloudflare publica este worker solo cada vez que cambia la carpeta worker/ en GitHub (Workers Builds).
+# A mano también se puede: cd worker && npx wrangler deploy
 name = "botonera-myinstants"
 main = "myinstants-proxy.js"
-compatibility_date = "2026-01-01"
+compatibility_date = "2026-10-13"
+workers_dev = true
+# Conserva las variables cargadas desde el panel de Cloudflare
+keep_vars = true
 
-# Login de Freesound para bajar originales (ver README). Reemplazá el id por el de tu namespace.
-# [[kv_namespaces]]
-# binding = "FS_KV"
-# id = "ID_DEL_NAMESPACE"
+# Almacenamiento del login de Freesound
+[[kv_namespaces]]
+binding = "FS_KV"
+id = "5c8f289f73b74b21867402754dd30a88"
 
-# Los secretos se cargan aparte:
-#   npx wrangler secret put FREESOUND_KEY
-#   npx wrangler secret put FREESOUND_CLIENT_ID
+# Los secretos FREESOUND_KEY y FREESOUND_CLIENT_ID se cargan en el panel
+# (Settings → Variables and secrets) y no se pierden al publicar.
