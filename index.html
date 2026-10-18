@@ -340,6 +340,10 @@ body{margin:0}
     <div class="row"><button class="btn" id="prSave" hidden>Guardar</button><button class="btn" id="prSaveNew">Guardar una copia</button></div>
     <p class="msg ok" id="prMsg" hidden></p>
   </div>
+  <div class="field"><span>Salida</span>
+    <label class="check"><input type="checkbox" id="prMono"> Salida mono</label>
+    <p class="foot">Activala si conectás el iPad a una consola o un parlante y algunos pads no suenan o suenan muy bajo. Manda los dos canales sumados por los dos lados y corrige los sonidos con un canal invertido, que al sumarse se anulan.</p>
+  </div>
   <div class="field" id="updBox" hidden><span>Actualización</span><div class="upd"><span>Hay una versión nueva de la app.</span><button class="btn primary" id="updBtn">Actualizar ahora</button></div></div>
   <div class="field"><span>Guardados en este iPad</span><div class="list" id="prList"></div></div>
   <div class="field"><span>Archivo</span>
@@ -446,6 +450,41 @@ var panicGain = ctx.createGain();    // se usa solo para el fundido del panic
 /* Medidores: el general mide la salida (después del fader); el del pad mide el pad abierto en el editor */
 var masterAn = ctx.createAnalyser(); masterAn.fftSize = 1024;
 master.connect(panicGain); panicGain.connect(masterAn); masterAn.connect(ctx.destination);
+/* Salida mono: suma izquierda y derecha y manda lo mismo a los dos lados. Sirve cuando el iPad va a una consola
+   o un parlante con un cable mono, que solo toma el canal izquierdo o suma los dos */
+var monoNode = ctx.createGain();
+try { monoNode.channelCount = 1; monoNode.channelCountMode = "explicit"; monoNode.channelInterpretation = "speakers"; } catch(e){}
+monoNode.connect(masterAn);
+var monoOn = false;
+function setMono(on){
+  on = !!on; if(on === monoOn) return; monoOn = on;
+  panicGain.disconnect();
+  if(on){ panicGain.connect(monoNode); monoScan(); } else panicGain.connect(masterAn);
+}
+/* Sonidos con un canal en contrafase se anulan al sumarlos. Se detectan una vez por sonido (hasta 30 s)
+   y en mono suenan con el canal derecho invertido, que es una copia preparada de antemano */
+var antiBuf = {}, antiChecked = {};
+function antiphase(buf){
+  if(buf.numberOfChannels < 2) return false;
+  var L = buf.getChannelData(0), R = buf.getChannelData(1), n = Math.min(buf.length, Math.round(30*buf.sampleRate));
+  var sum = 0, dif = 0;
+  for(var j=0;j<n;j+=2){ var a = L[j] + R[j], b = L[j] - R[j]; sum += a*a; dif += b*b; }
+  return dif > 1e-6 && sum < dif*0.25;
+}
+function monoCheck(id){
+  if(antiChecked[id] || !buffers[id]) return;
+  antiChecked[id] = true;
+  var buf = buffers[id];
+  if(!antiphase(buf)) return;
+  var c = ctx.createBuffer(2, buf.length, buf.sampleRate), r = buf.getChannelData(1), o = new Float32Array(r.length);
+  for(var j=0;j<r.length;j++) o[j] = -r[j];
+  c.getChannelData(0).set(buf.getChannelData(0)); c.getChannelData(1).set(o);
+  antiBuf[id] = c;
+}
+function monoScan(){
+  var ids = Object.keys(buffers).filter(function(id){ return !antiChecked[id]; }), k = 0;
+  (function step(){ if(!monoOn || k >= ids.length) return; monoCheck(ids[k++]); setTimeout(step, 0); })();
+}
 var padAn = ctx.createAnalyser(); padAn.fftSize = 1024;
 var padSink = ctx.createGain(); padSink.gain.value = 0; padAn.connect(padSink); padSink.connect(ctx.destination);
 var padAnFrom = null;
@@ -472,7 +511,7 @@ function trigger(i){
   var src = ctx.createBufferSource(), vg = ctx.createGain(), rg = ctx.createGain();
   var ng = cell.norm === false || !cell.ng ? 1 : cell.ng;   // igualar volumen: calculado al cargar, acá solo se aplica
   rg.gain.value = ng;
-  src.buffer = buf; src.connect(vg); vg.connect(rg); rg.connect(g);
+  src.buffer = monoOn && antiBuf[cell.sound] ? antiBuf[cell.sound] : buf; src.connect(vg); vg.connect(rg); rg.connect(g);
   var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
   if(e - s < 0.001){ s = 0; e = dur; }
   var t = ctx.currentTime, len = e - s;
@@ -591,12 +630,12 @@ function panic(){
 
 /* Ajustes del dispositivo (aparte de los presets): volumen general y dirección del proxy de búsqueda */
 var DEFAULT_PROXY = "https://botonera-myinstants.brunebell8.workers.dev";
-var settings = {knob:null, proxy:DEFAULT_PROXY, fsSession:"", seSource:"myinstants"};
+var settings = {knob:null, proxy:DEFAULT_PROXY, fsSession:"", seSource:"myinstants", mono:false};
 function saveSettings(){
   clearTimeout(saveSettings.t);
   saveSettings.t = setTimeout(function(){
     idb.put("meta", {id:"settings", knob:settings.knob == null ? knobPos : settings.knob, proxy:settings.proxy,
-      fsSession:settings.fsSession, seSource:settings.seSource}).catch(function(){});
+      fsSession:settings.fsSession, seSource:settings.seSource, mono:settings.mono}).catch(function(){});
   }, 300);
 }
 
@@ -925,7 +964,7 @@ function ensureSound(id){
   return idb.get("sounds", id).then(function(rec){
     if(!rec) return;
     soundNames[id] = rec.name;
-    return decode(rec.data.slice(0)).then(function(b){ buffers[id] = b; });
+    return decode(rec.data.slice(0)).then(function(b){ buffers[id] = b; if(monoOn) setTimeout(function(){ monoCheck(id); }, 0); });
   }).catch(function(){});
 }
 function loadSoundsFor(st){
@@ -1273,7 +1312,7 @@ function storeSound(ab, name, type, meta){
   askPersist();
   return decode(ab.slice(0)).then(function(buf){
     var id = uid("s_");
-    buffers[id] = buf; soundNames[id] = name; if(meta) soundMeta[id] = meta;
+    buffers[id] = buf; soundNames[id] = name; if(meta) soundMeta[id] = meta; if(monoOn) monoCheck(id);
     return idb.put("sounds", {id:id, name:name, type:type, size:ab.byteLength, data:ab, meta:meta || null})
       .then(function(){ return true; }, function(){ return false; })
       .then(function(saved){ return fillPicker().then(function(){ return {id:id, buf:buf, saved:saved}; }); });
@@ -1318,6 +1357,7 @@ document.getElementById("edGain").oninput = function(e){
 };
 document.getElementById("edChoke").onchange = function(e){ cellFor(selected).choke = e.target.checked; markDirty(); };
 document.getElementById("edNorm").onchange = function(e){ var c = cellFor(selected); c.norm = e.target.checked; ensureNorm(selected); syncEditor(); markDirty(); };
+document.getElementById("prMono").onchange = function(e){ settings.mono = e.target.checked; setMono(settings.mono); saveSettings(); };
 document.getElementById("edHold").onchange = function(e){ cellFor(selected).hold = e.target.checked; markDirty(); };
 document.getElementById("edClear").onclick = function(){
   var i = selected; state.cells[i] = null; cellFor(i); paintPad(i); syncEditor(); markDirty();
@@ -2160,6 +2200,7 @@ openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s
     if(typeof s.proxy === "string" && s.proxy) settings.proxy = s.proxy;
     if(typeof s.fsSession === "string") settings.fsSession = s.fsSession;
     if(s.seSource === "freesound" || s.seSource === "myinstants") settings.seSource = s.seSource;
+    if(s.mono === true){ settings.mono = true; setMono(true); document.getElementById("prMono").checked = true; }
   }
   return idb.get("meta", "current");
 }).then(function(m){
