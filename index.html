@@ -328,6 +328,7 @@ body{margin:0}
   <div class="field"><span>Color</span><div class="swatches" id="edColors"></div></div>
   <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="150" step="1"><span class="val" id="edGainOut">100%</span></div>
     <div class="pmeter" aria-hidden="true"><div class="meter" id="padMeter"><i></i><b></b></div></div></div>
+  <label class="field" id="edOutRow" hidden><span>Salida de este pad</span><select class="txt" id="edOut"></select></label>
   <label class="check"><input type="checkbox" id="edHold"> Si lo mantengo, corta al soltar</label>
   <label class="check"><input type="checkbox" id="edNorm"> Igualar volumen <span class="norm-val" id="edNormOut"></span></label>
   <label class="check"><input type="checkbox" id="edChoke"> Cortar el sonido anterior al volver a tocar</label>
@@ -342,9 +343,9 @@ body{margin:0}
     <p class="msg ok" id="prMsg" hidden></p>
   </div>
   <div class="field"><span>Salida</span>
-    <div class="row" id="prRouteRow" hidden><button class="btn" id="prRoute">Elegir salida: iPad, Bluetooth o AirPlay</button></div>
+    <div class="row" id="prSinkRow" hidden><select class="txt" id="prSink" aria-label="Salida de audio"></select><button class="btn" id="prSinkScan" hidden>Ver salidas</button></div>
+    <p class="foot" id="prSinkFoot" hidden>Elegí por dónde sale la botonera. En el editor de cada pad podés mandar ese pad a otra salida. Para ver las salidas, el navegador pide una vez permiso de micrófono: la app no graba nada.</p>
     <label class="check"><input type="checkbox" id="prMono"> Salida mono</label>
-    <p class="foot">Con auriculares Bluetooth, elegí "iPad" para que el sonido salga por el parlante, y volvé a elegirlos para retomarlos. Con auriculares de cable iOS no ofrece el parlante: hay que desenchufarlos.</p>
     <p class="foot">Salida mono: activala si conectás el iPad a una consola o un parlante y algunos pads no suenan o suenan muy bajo. Manda los dos canales sumados por los dos lados y corrige los sonidos con un canal invertido, que al sumarse se anulan.</p>
   </div>
   <div class="field" id="updBox" hidden><span>Actualización</span><div class="upd"><span>Hay una versión nueva de la app.</span><button class="btn primary" id="updBtn">Actualizar ahora</button></div></div>
@@ -468,6 +469,7 @@ function setMono(on){
   on = !!on; if(on === monoOn) return; monoOn = on;
   panicGain.disconnect();
   if(on){ panicGain.connect(monoNode); monoScan(); } else panicGain.connect(masterAn);
+  eachOut(function(o){ o.panic.disconnect(); o.panic.connect(on ? o.split : o.an); });
 }
 /* Sonidos con un canal en contrafase se anulan al sumarlos. Se detectan una vez por sonido (hasta 30 s)
    y en mono suenan con el canal derecho invertido, que es una copia preparada de antemano */
@@ -522,6 +524,60 @@ var padGains = [];     // GainNode por pad
 var voices = [];       // última voz por pad
 var unlocked = false;
 
+/* ---------- salidas (Chrome y Edge en computadora) ----------
+   La botonera sale por la salida general (settings.sink). Un pad con salida propia (cell.out) suena en otro
+   AudioContext atado a ese dispositivo, con su propio volumen general, panic y mono. Los buffers se comparten */
+var SINK_OK = typeof ctx.setSinkId === "function" && !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+var outs = {}, outDevices = [], outScanned = false;
+function masterLin(){ var db = posToDb(knobPos); return db === -Infinity ? 0 : Math.pow(10, db/20); }
+function outChain(id){
+  var o = outs[id]; if(o) return o;
+  var c; try { c = new AC({latencyHint:"interactive"}); } catch(e){ c = new AC(); }
+  o = outs[id] = {c:c, master:c.createGain(), panic:c.createGain(), an:c.createAnalyser(),
+    split:c.createChannelSplitter(2), sum:c.createGain(), merge:c.createChannelMerger(2)};
+  o.an.fftSize = 1024; o.master.gain.value = masterLin(); o.sum.gain.value = 0.5;
+  o.split.connect(o.sum, 0); o.split.connect(o.sum, 1); o.sum.connect(o.merge, 0, 0); o.sum.connect(o.merge, 0, 1); o.merge.connect(o.an);
+  o.master.connect(o.panic); o.panic.connect(monoOn ? o.split : o.an); o.an.connect(c.destination);
+  c.setSinkId(id).catch(function(){});
+  mLevel.ex.push(o.an);
+  return o;
+}
+function outFor(cell){
+  if(!SINK_OK || !cell.out || cell.out === (settings.sink || "")) return null;
+  for(var k=0;k<outDevices.length;k++) if(outDevices[k].id === cell.out) return outChain(cell.out);
+  return null;   // la salida del pad no está conectada: suena por la general
+}
+function eachOut(fn){ for(var k in outs) fn(outs[k]); }
+function applySink(){
+  if(!SINK_OK) return;
+  var id = settings.sink || "";
+  if(id && !outDevices.some(function(d){ return d.id === id; })) id = "";
+  ctx.setSinkId(id).catch(function(){});
+}
+function listOuts(){
+  if(!SINK_OK) return Promise.resolve();
+  return navigator.mediaDevices.enumerateDevices().then(function(ds){
+    outDevices = ds.filter(function(d){ return d.kind === "audiooutput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications"; })
+      .map(function(d, k){ return {id:d.deviceId, label:d.label || "Salida " + (k+1)}; });
+    outScanned = true; applySink(); renderOuts();
+  }).catch(function(){});
+}
+function fillOutSelect(sel, first, value){
+  sel.textContent = "";
+  var o = document.createElement("option"); o.value = ""; o.textContent = first; sel.appendChild(o);
+  var found = !value;
+  outDevices.forEach(function(d){ var op = document.createElement("option"); op.value = d.id; op.textContent = d.label; sel.appendChild(op); if(d.id === value) found = true; });
+  if(!found){ var x = document.createElement("option"); x.value = value; x.textContent = "Salida desconectada"; sel.appendChild(x); }
+  sel.value = value || "";
+}
+function renderOuts(){
+  if(!SINK_OK) return;
+  document.getElementById("prSinkRow").hidden = false; document.getElementById("prSinkFoot").hidden = false;
+  document.getElementById("prSinkScan").hidden = outDevices.length > 0;
+  fillOutSelect(document.getElementById("prSink"), "Salida del sistema", settings.sink || "");
+  var row = document.getElementById("edOutRow"); row.hidden = !outDevices.length;
+  if(selected >= 0 && outDevices.length) fillOutSelect(document.getElementById("edOut"), "La general", cellFor(selected).out || "");
+}
 function padGain(i){
   var g = padGains[i];
   if(!g){ g = padGains[i] = ctx.createGain(); g.connect(master); }
@@ -530,17 +586,19 @@ function padGain(i){
 function trigger(i){
   var cell = state.cells[i]; if(!cell || !cell.sound) return;
   var buf = buffers[cell.sound]; if(!buf) return;
-  if(ctx.state !== "running") ctx.resume();
-  var g = padGain(i);
+  var o = outFor(cell), C = o ? o.c : ctx;
+  if(C.state !== "running") C.resume();
+  var g = o ? o.master : padGain(i);
   if(cell.choke && voices[i]){ try{ voices[i].stop(0); }catch(e){} }
   /* vg lleva la envolvente del recorte y el fade out; rg es solo para cortar al soltar, así no se pisan */
-  var src = ctx.createBufferSource(), vg = ctx.createGain(), rg = ctx.createGain();
+  var src = C.createBufferSource(), vg = C.createGain(), rg = C.createGain();
   var ng = cell.norm === false || !cell.ng ? 1 : cell.ng;   // igualar volumen: calculado al cargar, acá solo se aplica
+  if(o) ng *= cell.gain == null ? 1 : cell.gain;           // en otra salida el volumen del pad va en la voz
   rg.gain.value = ng;
   src.buffer = monoOn && antiBuf[cell.sound] ? antiBuf[cell.sound] : buf; src.connect(vg); vg.connect(rg); rg.connect(g);
   var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
   if(e - s < 0.001){ s = 0; e = dur; }
-  var t = ctx.currentTime, len = e - s;
+  var t = C.currentTime, len = e - s;
   scheduleEnvelope(vg.gain, t, len, s > 0, e < dur - 0.0001, cell.fadeOut || 0);
   if(s > 0 || e < dur) src.start(0, s, len); else src.start(0);
   voices[i] = src;
@@ -639,29 +697,28 @@ function normAll(){
 /* Mantener y soltar: si el dedo estuvo apoyado más de HOLD_MS, al soltar se corta con un fundido corto */
 var HOLD_MS = 250;
 function release(v){
-  var t = ctx.currentTime;
+  var t = v.src.context.currentTime;
   v.rg.gain.setValueAtTime(v.ng || 1, t);
   v.rg.gain.linearRampToValueAtTime(0, t + 0.012);
   try{ v.src.stop(t + 0.014); }catch(e){}
 }
 /* Panic: fundido de 15 ms para que no haga click y corte todas las voces */
 function panic(){
-  var t = ctx.currentTime, list = playing; playing = []; voices = [];
-  panicGain.gain.cancelScheduledValues(t);
-  panicGain.gain.setValueAtTime(panicGain.gain.value, t);
-  panicGain.gain.linearRampToValueAtTime(0, t + 0.015);
-  list.forEach(function(s){ try{ s.stop(t + 0.016); }catch(e){} });
-  panicGain.gain.setValueAtTime(1, t + 0.02);
+  var list = playing; playing = []; voices = [];
+  function fade(c, pg){ var t = c.currentTime; pg.gain.cancelScheduledValues(t); pg.gain.setValueAtTime(pg.gain.value, t);
+    pg.gain.linearRampToValueAtTime(0, t + 0.015); pg.gain.setValueAtTime(1, t + 0.02); }
+  fade(ctx, panicGain); eachOut(function(o){ fade(o.c, o.panic); });
+  list.forEach(function(s){ try{ s.stop(s.context.currentTime + 0.016); }catch(e){} });
 }
 
 /* Ajustes del dispositivo (aparte de los presets): volumen general y dirección del proxy de búsqueda */
 var DEFAULT_PROXY = "https://botonera-myinstants.brunebell8.workers.dev";
-var settings = {knob:null, proxy:DEFAULT_PROXY, fsSession:"", seSource:"myinstants", mono:false};
+var settings = {knob:null, proxy:DEFAULT_PROXY, fsSession:"", seSource:"myinstants", mono:false, sink:""};
 function saveSettings(){
   clearTimeout(saveSettings.t);
   saveSettings.t = setTimeout(function(){
     idb.put("meta", {id:"settings", knob:settings.knob == null ? knobPos : settings.knob, proxy:settings.proxy,
-      fsSession:settings.fsSession, seSource:settings.seSource, mono:settings.mono}).catch(function(){});
+      fsSession:settings.fsSession, seSource:settings.seSource, mono:settings.mono, sink:settings.sink}).catch(function(){});
   }, 300);
 }
 
@@ -732,6 +789,7 @@ function setKnob(p, save){
   knobPos = Math.max(0, Math.min(1, p));
   var db = posToDb(knobPos), lin = db === -Infinity ? 0 : Math.pow(10, db/20);
   master.gain.setTargetAtTime(lin, ctx.currentTime, 0.01);
+  eachOut(function(o){ o.master.gain.setTargetAtTime(lin, o.c.currentTime, 0.01); });
   var pc = knobPos*100, txt = db === -Infinity ? "−∞ dB" : (db > 0.05 ? "+" : "") + db.toFixed(1).replace("-", "−") + " dB";
   var a = KA0 + (KA1 - KA0)*knobPos, au = KA0 + (KA1 - KA0)*UNITY;
   masters.forEach(function(m){
@@ -750,12 +808,13 @@ function setKnob(p, save){
 
 /* Medidores de nivel (pico de muestra, en dBFS): caída de 30 dB/s y marca de pico que se sostiene 0,6 s. Solo calculan mientras hay sonido */
 var M_FLOOR = -48;
-function makeLevel(an){ return {an:an, buf:new Float32Array(an.fftSize), bytes:new Uint8Array(an.fftSize), db:M_FLOOR, hold:M_FLOOR, holdT:0}; }
+function makeLevel(an){ return {an:an, ex:[], buf:new Float32Array(an.fftSize), bytes:new Uint8Array(an.fftSize), db:M_FLOOR, hold:M_FLOOR, holdT:0}; }
 var mLevel = makeLevel(masterAn), pLevel = makeLevel(padAn);
 function readPeak(L){
-  var p = 0, i, v;
-  if(L.an.getFloatTimeDomainData){ L.an.getFloatTimeDomainData(L.buf); for(i=0;i<L.buf.length;i++){ v = L.buf[i]; if(v < 0) v = -v; if(v > p) p = v; } }
-  else { L.an.getByteTimeDomainData(L.bytes); for(i=0;i<L.bytes.length;i++){ v = Math.abs(L.bytes[i] - 128)/128; if(v > p) p = v; } }
+  var p = 0, i, v, ans = L.ex.length ? [L.an].concat(L.ex) : [L.an];
+  for(var a=0;a<ans.length;a++){ var an = ans[a];
+  if(an.getFloatTimeDomainData){ an.getFloatTimeDomainData(L.buf); for(i=0;i<L.buf.length;i++){ v = L.buf[i]; if(v < 0) v = -v; if(v > p) p = v; } }
+  else { an.getByteTimeDomainData(L.bytes); for(i=0;i<L.bytes.length;i++){ v = Math.abs(L.bytes[i] - 128)/128; if(v > p) p = v; } } }
   return p > 0 ? 20*Math.log(p)/Math.LN10 : -Infinity;
 }
 function stepLevel(L, dt, now){
@@ -824,7 +883,7 @@ function silentWavUrl(){
   return URL.createObjectURL(new Blob([b],{type:"audio/wav"}));
 }
 var keepAlive = document.createElement("audio");
-keepAlive.setAttribute("playsinline",""); keepAlive.setAttribute("x-webkit-airplay","allow"); keepAlive.loop = true; keepAlive.preload = "auto";
+keepAlive.setAttribute("playsinline",""); keepAlive.loop = true; keepAlive.preload = "auto";
 try { keepAlive.src = silentWavUrl(); } catch(e){}
 function unlock(){
   if(ctx.state !== "running") ctx.resume();
@@ -839,7 +898,7 @@ function unlock(){
 document.addEventListener("touchstart", unlock, {capture:true, passive:true});
 document.addEventListener("pointerdown", unlock, true);
 document.addEventListener("visibilitychange", function(){
-  if(!document.hidden){ ctx.resume(); if(unlocked){ var p = keepAlive.play(); if(p && p.catch) p.catch(function(){}); } }
+  if(!document.hidden){ ctx.resume(); eachOut(function(o){ o.c.resume(); }); if(unlocked){ var p = keepAlive.play(); if(p && p.catch) p.catch(function(){}); } }
 });
 function showLatency(){
   var el = document.getElementById("latency");
@@ -1236,6 +1295,7 @@ function syncEditor(){
   var cur = document.getElementById("edCur");
   cur.textContent = cell.sound ? (soundNames[cell.sound] || cell.sound) : "Sin sonido";
   cur.classList.toggle("none", !cell.sound);
+  if(SINK_OK && outDevices.length) fillOutSelect(document.getElementById("edOut"), "La general", cell.out || "");
   var ch = document.getElementById("edCh"), ci = cell.sound ? channelInfo(cell.sound) : "";
   ch.hidden = !ci; ch.textContent = ci ? "Canales: " + ci + (monoOn ? " · Salida mono activada" : "") : "";
   document.getElementById("edLabel").value = cell.label || "";
@@ -1385,20 +1445,17 @@ document.getElementById("edGain").oninput = function(e){
 };
 document.getElementById("edChoke").onchange = function(e){ cellFor(selected).choke = e.target.checked; markDirty(); };
 document.getElementById("edNorm").onchange = function(e){ var c = cellFor(selected); c.norm = e.target.checked; ensureNorm(selected); syncEditor(); markDirty(); };
-/* Selector de salida de iOS (el mismo de AirPlay del Centro de control). Se abre desde el <audio> silencioso que
-   mantiene viva la sesión de audio; al cambiar de salida, iOS mueve todo el audio de la app, Web Audio incluido */
-(function(){
-  var row = document.getElementById("prRouteRow"), b = document.getElementById("prRoute");
-  if(typeof keepAlive.webkitShowPlaybackTargetPicker !== "function") return;
-  row.hidden = false;
-  b.onclick = function(){
-    unlock();
-    var p = keepAlive.play(); if(p && p.catch) p.catch(function(){});
-    try { keepAlive.webkitShowPlaybackTargetPicker(); } catch(e){}
-  };
-  keepAlive.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", function(){ ctx.resume(); });
-})();
 try { ctx.onstatechange = function(){ if(ctx.state !== "running" && !document.hidden && unlocked) ctx.resume(); }; } catch(e){}
+if(SINK_OK){
+  renderOuts(); listOuts();
+  navigator.mediaDevices.addEventListener("devicechange", listOuts);
+  document.getElementById("prSink").onchange = function(e){ settings.sink = e.target.value; saveSettings(); applySink(); };
+  document.getElementById("prSinkScan").onclick = function(){
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(st){ st.getTracks().forEach(function(t){ t.stop(); }); return listOuts(); })
+      .catch(function(){ document.getElementById("prSinkFoot").textContent = "Sin el permiso de micrófono el navegador no muestra las salidas. Habilitalo desde el candado de la barra de direcciones."; });
+  };
+  document.getElementById("edOut").onchange = function(e){ var c = cellFor(selected); c.out = e.target.value || null; markDirty(); };
+}
 document.getElementById("prMono").onchange = function(e){ settings.mono = e.target.checked; setMono(settings.mono); saveSettings(); };
 document.getElementById("edHold").onchange = function(e){ cellFor(selected).hold = e.target.checked; markDirty(); };
 document.getElementById("edClear").onclick = function(){
@@ -2242,6 +2299,8 @@ openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s
     if(typeof s.proxy === "string" && s.proxy) settings.proxy = s.proxy;
     if(typeof s.fsSession === "string") settings.fsSession = s.fsSession;
     if(s.seSource === "freesound" || s.seSource === "myinstants") settings.seSource = s.seSource;
+    if(typeof s.sink === "string") settings.sink = s.sink;
+    if(SINK_OK){ applySink(); renderOuts(); }
     if(s.mono === true){ settings.mono = true; setMono(true); document.getElementById("prMono").checked = true; }
   }
   return idb.get("meta", "current");

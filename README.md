@@ -46,9 +46,15 @@ Cada vez que cargás un sonido en un pad (desde Archivos, MyInstants, Freesound 
 
 Si el título no dice qué es (Audio 2, Grabación, Hit, Loop, 01…), suma una aclaración corta: lo que buscaste, el listado de donde salió o una etiqueta de Freesound. Un "Hit" buscado como "tambor" queda **Tambor hit**. Lo podés cambiar a mano en **Nombre del pad**, y se guarda solo.
 
-## Elegir la salida
+## Elegir la salida (Mac o PC, en Chrome o Edge)
 
-En **Presets → Salida**, **Elegir salida** abre el selector de audio de iOS, el mismo de AirPlay del Centro de control. Con auriculares Bluetooth, elegí **iPad** y el sonido sale por el parlante; para volver, elegí los auriculares. Con auriculares de cable, iOS no ofrece el parlante: hay que desenchufarlos.
+En Chrome y Edge de computadora, **Presets → Salida** muestra la lista de salidas de audio: parlantes, auriculares, Bluetooth o placa de audio. La primera vez, **Ver salidas** pide permiso de micrófono, porque es la forma en que el navegador deja ver los nombres; la app no graba nada.
+
+- La salida elegida en Presets es la general: por ahí suena toda la botonera.
+- En el editor de cada pad, **Salida de este pad** lo manda a otra salida. Por ejemplo, todo por los auriculares y un efecto por los parlantes. El volumen general, Panic y Salida mono valen para todas las salidas.
+- Si la salida de un pad se desconecta, ese pad suena por la general.
+
+En Macs con chip Apple, los parlantes y el jack de auriculares son salidas separadas y se pueden usar a la vez. En Macs con Intel, al enchufar auriculares los parlantes se apagan. En el iPad y en Safari esta opción no aparece, porque esos navegadores no dejan elegir la salida.
 
 ## Salida mono
 

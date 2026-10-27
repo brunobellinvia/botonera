@@ -2,7 +2,7 @@
    Guarda la app completa en el iPad la primera vez que se abre con conexión.
    Después abre siempre desde el caché, con o sin internet.
    Cada vez que cambies un archivo del repo, subí el número de VERSION. */
-var VERSION = "1.9.0";
+var VERSION = "1.10.0";
 var CACHE = "botonera-" + VERSION;
 var FILES = [
   "./",
