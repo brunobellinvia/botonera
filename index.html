@@ -342,8 +342,10 @@ body{margin:0}
     <p class="msg ok" id="prMsg" hidden></p>
   </div>
   <div class="field"><span>Salida</span>
+    <div class="row" id="prRouteRow" hidden><button class="btn" id="prRoute">Elegir salida: iPad, Bluetooth o AirPlay</button></div>
     <label class="check"><input type="checkbox" id="prMono"> Salida mono</label>
-    <p class="foot">Activala si conectás el iPad a una consola o un parlante y algunos pads no suenan o suenan muy bajo. Manda los dos canales sumados por los dos lados y corrige los sonidos con un canal invertido, que al sumarse se anulan.</p>
+    <p class="foot">Con auriculares Bluetooth, elegí "iPad" para que el sonido salga por el parlante, y volvé a elegirlos para retomarlos. Con auriculares de cable iOS no ofrece el parlante: hay que desenchufarlos.</p>
+    <p class="foot">Salida mono: activala si conectás el iPad a una consola o un parlante y algunos pads no suenan o suenan muy bajo. Manda los dos canales sumados por los dos lados y corrige los sonidos con un canal invertido, que al sumarse se anulan.</p>
   </div>
   <div class="field" id="updBox" hidden><span>Actualización</span><div class="upd"><span>Hay una versión nueva de la app.</span><button class="btn primary" id="updBtn">Actualizar ahora</button></div></div>
   <div class="field"><span>Guardados en este iPad</span><div class="list" id="prList"></div></div>
@@ -822,7 +824,7 @@ function silentWavUrl(){
   return URL.createObjectURL(new Blob([b],{type:"audio/wav"}));
 }
 var keepAlive = document.createElement("audio");
-keepAlive.setAttribute("playsinline",""); keepAlive.loop = true; keepAlive.preload = "auto";
+keepAlive.setAttribute("playsinline",""); keepAlive.setAttribute("x-webkit-airplay","allow"); keepAlive.loop = true; keepAlive.preload = "auto";
 try { keepAlive.src = silentWavUrl(); } catch(e){}
 function unlock(){
   if(ctx.state !== "running") ctx.resume();
@@ -1383,6 +1385,20 @@ document.getElementById("edGain").oninput = function(e){
 };
 document.getElementById("edChoke").onchange = function(e){ cellFor(selected).choke = e.target.checked; markDirty(); };
 document.getElementById("edNorm").onchange = function(e){ var c = cellFor(selected); c.norm = e.target.checked; ensureNorm(selected); syncEditor(); markDirty(); };
+/* Selector de salida de iOS (el mismo de AirPlay del Centro de control). Se abre desde el <audio> silencioso que
+   mantiene viva la sesión de audio; al cambiar de salida, iOS mueve todo el audio de la app, Web Audio incluido */
+(function(){
+  var row = document.getElementById("prRouteRow"), b = document.getElementById("prRoute");
+  if(typeof keepAlive.webkitShowPlaybackTargetPicker !== "function") return;
+  row.hidden = false;
+  b.onclick = function(){
+    unlock();
+    var p = keepAlive.play(); if(p && p.catch) p.catch(function(){});
+    try { keepAlive.webkitShowPlaybackTargetPicker(); } catch(e){}
+  };
+  keepAlive.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", function(){ ctx.resume(); });
+})();
+try { ctx.onstatechange = function(){ if(ctx.state !== "running" && !document.hidden && unlocked) ctx.resume(); }; } catch(e){}
 document.getElementById("prMono").onchange = function(e){ settings.mono = e.target.checked; setMono(settings.mono); saveSettings(); };
 document.getElementById("edHold").onchange = function(e){ cellFor(selected).hold = e.target.checked; markDirty(); };
 document.getElementById("edClear").onclick = function(){

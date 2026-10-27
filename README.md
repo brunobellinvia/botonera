@@ -46,6 +46,10 @@ Cada vez que cargás un sonido en un pad (desde Archivos, MyInstants, Freesound 
 
 Si el título no dice qué es (Audio 2, Grabación, Hit, Loop, 01…), suma una aclaración corta: lo que buscaste, el listado de donde salió o una etiqueta de Freesound. Un "Hit" buscado como "tambor" queda **Tambor hit**. Lo podés cambiar a mano en **Nombre del pad**, y se guarda solo.
 
+## Elegir la salida
+
+En **Presets → Salida**, **Elegir salida** abre el selector de audio de iOS, el mismo de AirPlay del Centro de control. Con auriculares Bluetooth, elegí **iPad** y el sonido sale por el parlante; para volver, elegí los auriculares. Con auriculares de cable, iOS no ofrece el parlante: hay que desenchufarlos.
+
 ## Salida mono
 
 En **Presets → Salida**, activá **Salida mono** cuando conectes el iPad a una consola o un parlante. Con un cable mono, o en un canal mono de la consola, se pierde el canal derecho o se suman los dos. Los sonidos grabados de un solo lado dejan de sonar, y los que tienen un canal invertido (común en efectos "anchos") se anulan al sumarse. En mono, la app suma los dos canales, manda lo mismo por los dos lados y corrige los sonidos invertidos. Esa corrección se calcula una vez por sonido; al tocar no suma trabajo. Con auriculares o los parlantes del iPad, dejala apagada para conservar el estéreo.
