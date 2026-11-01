@@ -36,6 +36,10 @@ En la app, con Freesound elegido, tocá **Conectar Freesound**. Se abre Safari p
 
 Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide mencionar al autor cuando publiques algo que lo use. **CC BY-NC** (en ámbar) no permite uso comercial: revisalo antes de usar esos sonidos en un show pago. La licencia y el autor quedan guardados junto con cada sonido.
 
+## Cambiar de botonera
+
+Tocá el nombre de la botonera, arriba a la izquierda, en Tocar o en Editar. Se despliega un menú como los de iOS con todas tus botoneras en orden alfabético; la abierta tiene una tilde. Tocá otra y cambia al instante. Lo que estabas haciendo se guarda antes de cambiar, y los sonidos que ya se usaron quedan cargados, así que volver es inmediato. **Nueva botonera** crea una vacía y la abre en Editar. **Administrar botoneras** abre Presets para renombrar, borrar, exportar o importar.
+
 ## Ordenar los pads
 
 En **Editar**, mantené apretado un pad 0,4 s: se levanta y los demás tiemblan, como en la pantalla de inicio de iOS. Arrastralo sobre otro pad y soltalo: intercambian lugar con todo su contenido (sonido, recorte, color y opciones). Si lo soltás fuera de la grilla, vuelve a su lugar. Un toque corto sigue abriendo el editor del pad.
@@ -62,7 +66,7 @@ En **Presets → Salida**, activá **Salida mono** cuando conectes el iPad a una
 
 ## Igualar volumen
 
-Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −18 LUFS, sin que el pico pase de −8 dBFS y sin subir más de +15 dB. Ese margen es una zona segura: con el fader general en 0 dB ningún sonido llega al máximo, y queda lugar para subir. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. Al cambiar estos valores, los sonidos ya cargados se recalculan solos al abrir la botonera, sin tocar el resto de la plantilla. En el editor se ve cuánto se corrigió: positivo si lo subió, negativo si lo bajó.
+Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −18 LUFS, sin que el pico pase de −10 dBFS y sin subir más de +15 dB. Ese margen es una zona segura: con el fader general en 0 dB ningún sonido llega al máximo, y queda lugar para subir. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. Al cambiar estos valores, los sonidos ya cargados se recalculan solos al abrir la botonera, sin tocar el resto de la plantilla. En el editor se ve cuánto se corrigió: positivo si lo subió, negativo si lo bajó.
 
 Un sonido bajito con un golpe muy fuerte (por ejemplo, un click al principio) casi no sube, porque el golpe ya está cerca del techo de pico. Recortá el golpe y el volumen se recalcula.
 

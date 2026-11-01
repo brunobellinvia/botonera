@@ -50,6 +50,24 @@ button{touch-action:manipulation}
 /* barra */
 .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .name{display:flex;align-items:center;gap:8px;background:none;border:0;padding:6px 0;cursor:pointer;min-width:0;flex:1 1 160px;text-align:left}
+.name .chev{flex:none;width:12px;height:12px;border-right:2.5px solid var(--muted);border-bottom:2.5px solid var(--muted);transform:translateY(-3px) rotate(45deg);transition:transform .2s}
+.name[aria-expanded="true"] .chev{transform:translateY(2px) rotate(225deg)}
+/* menú de botoneras, como los menús desplegables de iOS */
+.pmenu-catch{position:fixed;inset:0;z-index:20}
+.pmenu{position:fixed;z-index:21;min-width:260px;max-width:min(360px,calc(100vw - 32px));max-height:70vh;overflow:auto;-webkit-overflow-scrolling:touch;
+  background:#2c2e34;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.55);transform-origin:top left;
+  animation:pmenu-in .18s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes pmenu-in{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+.pmenu button{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;padding:12px 16px;text-align:left;font-size:19px;cursor:pointer}
+.pmenu button + button{border-top:1px solid rgba(255,255,255,.08)}
+.pmenu button:active{background:rgba(255,255,255,.12)}
+.pmenu .ck{flex:none;width:16px;color:var(--accent);font-weight:700}
+.pmenu .nm{flex:1;min-width:0}
+.pmenu .nm b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmenu .nm small{display:block;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.pmenu .sep{height:8px;background:rgba(0,0,0,.25)}
+.pmenu .sep + button{border-top:0}
+.pmenu .ic{flex:none;width:16px;text-align:center;color:var(--muted)}
 .name b{font-weight:700;font-size:22px;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dirty{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
 .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px}
@@ -289,7 +307,7 @@ body{margin:0}
 <body>
 <div class="app" id="app">
   <div class="bar">
-    <button class="name" id="nameBtn" aria-label="Abrir presets"><b id="presetName">Kit demo</b><span class="dirty" id="dirty" hidden></span></button>
+    <button class="name" id="nameBtn" aria-label="Cambiar de botonera" aria-haspopup="menu" aria-expanded="false"><b id="presetName">Kit demo</b><span class="chev"></span><span class="dirty" id="dirty" hidden></span></button>
     <div class="seg" role="group" aria-label="Modo">
       <button id="modePlay" aria-pressed="true">Tocar</button>
       <button id="modeEdit" aria-pressed="false">Editar</button>
@@ -619,9 +637,9 @@ function scheduleEnvelope(p, t, len, cutStart, cutEnd, fade){
    solapamiento de 75 %, gate absoluto de −70 y relativo de −10). Lleva cada sonido a NORM_TARGET LUFS:
    baja los muy comprimidos y sube los bajitos, sin pasar el pico de NORM_CEIL dBFS ni subir más de NORM_MAX_BOOST.
    Se calcula una vez por sonido y recorte; al tocar solo se aplica una ganancia fija. */
-/* Nivel de trabajo con margen ("safe zone"): −18 LUFS y picos hasta −8 dBFS, así el fader en 0 dB no llega al máximo.
+/* Nivel de trabajo con margen ("safe zone"): −18 LUFS y picos hasta −10 dBFS, así el fader en 0 dB no llega al máximo.
    NORM_VER se suma a la clave: al cambiar estos valores, los sonidos ya cargados se recalculan solos al abrir la botonera */
-var NORM_TARGET = -18, NORM_MAX_BOOST = 15, NORM_MAX_CUT = 30, NORM_CEIL = -8, NORM_MAX_SEC = 30, NORM_VER = "n2";
+var NORM_TARGET = -18, NORM_MAX_BOOST = 15, NORM_MAX_CUT = 30, NORM_CEIL = -10, NORM_MAX_SEC = 30, NORM_VER = "n3";
 var normCache = {};
 function kCoefs(sr){
   var f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196;
@@ -2207,7 +2225,70 @@ function openPresets(){
   renderList(); openSheet("presets");
 }
 document.getElementById("presetsBtn").onclick = openPresets;
-document.getElementById("nameBtn").onclick = openPresets;
+/* Cambio rápido de botonera: el nombre abre un menú desplegable (como los de iOS) con todas las botoneras.
+   Antes de cambiar se guarda lo pendiente; los sonidos ya decodificados quedan en memoria, así volver es instantáneo */
+var pmenu = null;
+function closeMenu(){
+  if(!pmenu) return;
+  pmenu.catcher.remove(); pmenu.el.remove(); pmenu = null;
+  document.getElementById("nameBtn").setAttribute("aria-expanded", "false");
+}
+function switchTo(p){
+  closeMenu();
+  if(p.id === state.id) return;
+  clearTimeout(saveTimer);
+  var flush = dirty ? Promise.resolve(autosave()).catch(function(){}) : Promise.resolve();
+  flush.then(function(){ return idb.get("presets", p.id); }).then(function(fresh){
+    return loadPreset(fresh || p).then(function(){ idb.put("meta", {id:"current", state:state, dirty:false}).catch(function(){}); });
+  });
+}
+function newBoard(){
+  closeMenu();
+  clearTimeout(saveTimer);
+  var flush = dirty ? Promise.resolve(autosave()).catch(function(){}) : Promise.resolve();
+  flush.then(function(){ return idb.all("presets"); }).then(function(list){
+    var names = {}; list.forEach(function(x){ names[x.name] = 1; });
+    var n = 1, name = "Botonera nueva"; while(names[name]) name = "Botonera nueva " + (++n);
+    var cells = []; for(var i=0;i<MAX*MAX;i++) cells.push(null);
+    var p = {id:uid("p_"), name:name, rows:state.rows || 4, cols:state.cols || 4, gap:state.gap == null ? 8 : state.gap, cells:cells, updated:Date.now()};
+    return idb.put("presets", p).then(function(){ return loadPreset(p); }).then(function(){
+      idb.put("meta", {id:"current", state:state, dirty:false}).catch(function(){});
+      setMode("edit");
+    });
+  }).catch(function(){});
+}
+function openMenu(){
+  if(pmenu){ closeMenu(); return; }
+  var btn = document.getElementById("nameBtn");
+  var catcher = document.createElement("div"); catcher.className = "pmenu-catch";
+  var el = document.createElement("div"); el.className = "pmenu"; el.setAttribute("role", "menu");
+  var r = btn.getBoundingClientRect();
+  el.style.left = Math.max(16, r.left) + "px"; el.style.top = (r.bottom + 6) + "px";
+  catcher.addEventListener("touchstart", function(e){ e.preventDefault(); closeMenu(); }, {passive:false});
+  catcher.addEventListener("mousedown", closeMenu);
+  document.body.appendChild(catcher); document.body.appendChild(el);
+  pmenu = {el:el, catcher:catcher};
+  btn.setAttribute("aria-expanded", "true");
+  function item(ic, title, sub, fn, cls){
+    var b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "menuitem");
+    var k = document.createElement("span"); k.className = cls || "ic"; k.textContent = ic;
+    var nm = document.createElement("span"); nm.className = "nm";
+    var t = document.createElement("b"); t.textContent = title; nm.appendChild(t);
+    if(sub){ var sm = document.createElement("small"); sm.textContent = sub; nm.appendChild(sm); }
+    b.appendChild(k); b.appendChild(nm); b.onclick = fn; el.appendChild(b);
+  }
+  idb.all("presets").then(function(ps){
+    if(!pmenu || pmenu.el !== el) return;
+    ps.sort(function(a,b){ return a.name.localeCompare(b.name, "es", {numeric:true}); }).forEach(function(p){
+      var n = countPads(p);
+      item(p.id === state.id ? "✓" : "", p.name, p.rows + "×" + p.cols + " · " + n + (n === 1 ? " pad" : " pads"), function(){ switchTo(p); }, "ck");
+    });
+    if(ps.length){ var sp = document.createElement("div"); sp.className = "sep"; el.appendChild(sp); }
+    item("+", "Nueva botonera", null, newBoard);
+    item("…", "Administrar botoneras", null, function(){ closeMenu(); openPresets(); });
+  }).catch(function(){ item("…", "Administrar botoneras", null, function(){ closeMenu(); openPresets(); }); });
+}
+document.getElementById("nameBtn").onclick = openMenu;
 document.getElementById("prClose").onclick = closeSheets;
 document.getElementById("prName").oninput = function(e){
   state.name = e.target.value; document.getElementById("presetName").textContent = state.name || "Sin nombre"; markDirty();
