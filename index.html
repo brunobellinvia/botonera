@@ -326,7 +326,7 @@ body{margin:0}
   </div>
   <label class="field"><span>Nombre del pad</span><input class="txt" id="edLabel" maxlength="24" autocomplete="off"></label>
   <div class="field"><span>Color</span><div class="swatches" id="edColors"></div></div>
-  <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="150" step="1"><span class="val" id="edGainOut">100%</span></div>
+  <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="1000" step="1"><span class="val" id="edGainOut" style="width:8ch">0.0 dB</span></div>
     <div class="pmeter" aria-hidden="true"><div class="meter" id="padMeter"><i></i><b></b></div></div></div>
   <label class="field" id="edOutRow" hidden><span>Salida de este pad</span><select class="txt" id="edOut"></select></label>
   <label class="check"><input type="checkbox" id="edHold"> Si lo mantengo, corta al soltar</label>
@@ -619,7 +619,9 @@ function scheduleEnvelope(p, t, len, cutStart, cutEnd, fade){
    solapamiento de 75 %, gate absoluto de −70 y relativo de −10). Lleva cada sonido a NORM_TARGET LUFS:
    baja los muy comprimidos y sube los bajitos, sin pasar el pico de NORM_CEIL dBFS ni subir más de NORM_MAX_BOOST.
    Se calcula una vez por sonido y recorte; al tocar solo se aplica una ganancia fija. */
-var NORM_TARGET = -12, NORM_MAX_BOOST = 15, NORM_MAX_CUT = 24, NORM_CEIL = -1, NORM_MAX_SEC = 30;
+/* Nivel de trabajo con margen ("safe zone"): −18 LUFS y picos hasta −8 dBFS, así el fader en 0 dB no llega al máximo.
+   NORM_VER se suma a la clave: al cambiar estos valores, los sonidos ya cargados se recalculan solos al abrir la botonera */
+var NORM_TARGET = -18, NORM_MAX_BOOST = 15, NORM_MAX_CUT = 30, NORM_CEIL = -8, NORM_MAX_SEC = 30, NORM_VER = "n2";
 var normCache = {};
 function kCoefs(sr){
   var f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196;
@@ -674,24 +676,27 @@ function loudnessGain(key, buf, s0, e0){
   }
   return normCache[key] = Math.pow(10, gDb/20);
 }
-function normKey(cell){ return cell.sound + "|" + (cell.start || 0).toFixed(4) + "|" + (cell.end == null ? "" : cell.end.toFixed(4)); }
+function normKey(cell){ return NORM_VER + "|" + cell.sound + "|" + (cell.start || 0).toFixed(4) + "|" + (cell.end == null ? "" : cell.end.toFixed(4)); }
 function ensureNorm(i){
   var cell = state.cells[i]; if(!cell || !cell.sound) return;
   var buf = buffers[cell.sound]; if(!buf) return;
-  var key = normKey(cell); if(cell.ngKey === key && cell.ng) return;
+  var key = normKey(cell); if(cell.ngKey === key && cell.ng) return false;
   var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
   if(e - s < 0.001){ s = 0; e = dur; }
   cell.ng = loudnessGain(key, buf, Math.floor(s*buf.sampleRate), Math.floor(e*buf.sampleRate));
   cell.ngKey = key;
+  return true;
 }
 /* Al abrir un preset: analiza los pads por tandas de 30 ms, así la pantalla no se traba */
 function normAll(){
-  var idx = [], k = 0;
+  var idx = [], k = 0, changed = false, st = state;
   state.cells.forEach(function(c, i){ if(c && c.sound) idx.push(i); });
   (function next(){
+    if(state !== st) return;
     var t0 = performance.now();
-    while(k < idx.length && performance.now() - t0 < 30) ensureNorm(idx[k++]);
+    while(k < idx.length && performance.now() - t0 < 30){ if(ensureNorm(idx[k++])) changed = true; }
     if(k < idx.length) setTimeout(next, 0);
+    else if(changed && state.id){ markDirty(); if(selected >= 0) syncEditor(); }   // guarda el recálculo en la misma botonera
   })();
 }
 /* Mantener y soltar: si el dedo estuvo apoyado más de HOLD_MS, al soltar se corta con un fundido corto */
@@ -1299,8 +1304,9 @@ function syncEditor(){
   var ch = document.getElementById("edCh"), ci = cell.sound ? channelInfo(cell.sound) : "";
   ch.hidden = !ci; ch.textContent = ci ? "Canales: " + ci + (monoOn ? " · Salida mono activada" : "") : "";
   document.getElementById("edLabel").value = cell.label || "";
-  document.getElementById("edGain").value = Math.round((cell.gain == null ? 1 : cell.gain)*100);
-  document.getElementById("edGainOut").textContent = Math.round((cell.gain == null ? 1 : cell.gain)*100) + "%";
+  var pg = cell.gain == null ? 1 : cell.gain;
+  document.getElementById("edGain").value = Math.round(gainToPos(pg)*1000);
+  document.getElementById("edGainOut").textContent = dbText(pg);
   document.getElementById("edChoke").checked = !!cell.choke;
   var normOn = cell.norm !== false;
   document.getElementById("edNorm").checked = normOn;
@@ -1439,9 +1445,15 @@ document.getElementById("edFile").onchange = function(e){
 document.getElementById("edPick").onchange = function(e){ if(e.target.value) assign(e.target.value); };
 document.getElementById("edTest").onclick = function(){ if(selected >= 0) trigger(selected); };
 document.getElementById("edLabel").oninput = function(e){ cellFor(selected).label = e.target.value; paintPad(selected); markDirty(); };
+/* Volumen del pad con la misma curva que el fader general (en dB, como se escucha): mitad del recorrido ≈ −6 dB,
+   un cuarto ≈ −18 dB, arriba +6 dB. Se guarda la ganancia, así los pads ya ajustados suenan igual que antes */
+function gainToPos(g){ return g <= 0 ? 0 : Math.min(1, dbToPos(20*Math.log(g)/Math.LN10)); }
+function dbText(g){ if(g <= 0) return "−∞ dB"; var db = 20*Math.log(g)/Math.LN10; return (db > 0.05 ? "+" : "") + db.toFixed(1).replace("-", "−") + " dB"; }
 document.getElementById("edGain").oninput = function(e){
-  var g = +e.target.value/100; cellFor(selected).gain = g; padGain(selected).gain.value = g;
-  document.getElementById("edGainOut").textContent = e.target.value + "%"; markDirty();
+  var p = +e.target.value/1000, db = posToDb(p), g = db === -Infinity ? 0 : Math.pow(10, db/20);
+  if(Math.abs(db) < 0.4) g = 1;   // se engancha en 0 dB
+  cellFor(selected).gain = g; padGain(selected).gain.value = g;
+  document.getElementById("edGainOut").textContent = dbText(g); markDirty();
 };
 document.getElementById("edChoke").onchange = function(e){ cellFor(selected).choke = e.target.checked; markDirty(); };
 document.getElementById("edNorm").onchange = function(e){ var c = cellFor(selected); c.norm = e.target.checked; ensureNorm(selected); syncEditor(); markDirty(); };

@@ -62,9 +62,11 @@ En **Presets → Salida**, activá **Salida mono** cuando conectes el iPad a una
 
 ## Igualar volumen
 
-Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −12 LUFS: baja los sonidos muy comprimidos y sube los bajitos, hasta +15 dB y sin que el pico pase de −1 dBFS. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. La preescucha del buscador usa el mismo cálculo. En el editor se ve cuánto se corrigió.
+Cada pad tiene la opción **Igualar volumen**, activada de entrada. Mide la loudness del sonido (la parte recortada) con el método de EBU R128 y aplica una ganancia fija para llevarlo a −18 LUFS, sin que el pico pase de −8 dBFS y sin subir más de +15 dB. Ese margen es una zona segura: con el fader general en 0 dB ningún sonido llega al máximo, y queda lugar para subir. Se calcula una vez al cargar o recortar el sonido; al tocar no suma trabajo. Al cambiar estos valores, los sonidos ya cargados se recalculan solos al abrir la botonera, sin tocar el resto de la plantilla. En el editor se ve cuánto se corrigió: positivo si lo subió, negativo si lo bajó.
 
 Un sonido bajito con un golpe muy fuerte (por ejemplo, un click al principio) casi no sube, porque el golpe ya está cerca del techo de pico. Recortá el golpe y el volumen se recalcula.
+
+El **Volumen** de cada pad usa la misma escala que el fader general, en dB: la mitad del recorrido es −6 dB, un cuarto es −18 dB y arriba de todo, +6 dB.
 
 ## Buscar sonidos en MyInstants
 
