@@ -40,6 +40,12 @@ Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide me
 
 Tocá el nombre de la botonera, arriba a la izquierda, en Tocar o en Editar. Se despliega un menú como los de iOS con todas tus botoneras en orden alfabético; la abierta tiene una tilde. Tocá otra y cambia al instante. Lo que estabas haciendo se guarda antes de cambiar, y los sonidos que ya se usaron quedan cargados, así que volver es inmediato. **Nueva botonera** crea una vacía y la abre en Editar. **Administrar botoneras** abre Presets para renombrar, borrar, exportar o importar.
 
+## Loop
+
+En el editor del pad, activá **Loop**. Funciona como el modo Toggle de un clip en Ableton: un toque arranca el sonido y lo repite sin parar; otro toque lo frena con un fundido corto. Panic también lo corta. Mientras suena, el pad tiene un borde de su color y un punto que late, y su nombre lleva ⟳.
+
+Se repite el tramo recortado. Para que el empalme no haga click, el final se funde con el principio en un crossfade de igual potencia, de hasta 0,3 s, como el crossfade de loop de Simpler. Sirve para fondos como ruido de vinilo, ambientes o drones. En loops rítmicos cortos, ajustá el recorte al compás. Si cambiás de botonera, el loop sigue sonando; al volver, lo frenás con un toque.
+
 ## Ordenar los pads
 
 En **Editar**, mantené apretado un pad 0,4 s: se levanta y los demás tiemblan, como en la pantalla de inicio de iOS. Arrastralo sobre otro pad y soltalo: intercambian lugar con todo su contenido (sonido, recorte, color y opciones). Si lo soltás fuera de la grilla, vuelve a su lugar. Un toque corto sigue abriendo el editor del pad.

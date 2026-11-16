@@ -179,6 +179,11 @@ button{touch-action:manipulation}
 .gridbar{border-left:3px solid var(--edit);padding-left:10px}
 .pad.sel{box-shadow:inset 0 0 0 2px var(--accent)}
 .pad.loading .lbl{opacity:.4}
+/* Loop: el pad lleva ⟳ en el nombre; mientras suena, borde del color del pad y un punto que late */
+.pad.isloop .lbl::before{content:"⟳ ";color:var(--c)}
+.pad.looping{box-shadow:inset 0 0 0 3px var(--c)}
+.pad.looping::after{content:"";position:absolute;top:10px;right:10px;width:10px;height:10px;border-radius:50%;background:var(--c);animation:loopdot 1s ease-in-out infinite}
+@keyframes loopdot{50%{opacity:.25}}
 
 /* hojas */
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10}
@@ -347,6 +352,7 @@ body{margin:0}
   <div class="field"><span>Volumen</span><div class="row"><input type="range" id="edGain" min="0" max="1000" step="1"><span class="val" id="edGainOut" style="width:8ch">0.0 dB</span></div>
     <div class="pmeter" aria-hidden="true"><div class="meter" id="padMeter"><i></i><b></b></div></div></div>
   <label class="field" id="edOutRow" hidden><span>Salida de este pad</span><select class="txt" id="edOut"></select></label>
+  <label class="check"><input type="checkbox" id="edLoop"> Loop: un toque lo arranca y otro lo para</label>
   <label class="check"><input type="checkbox" id="edHold"> Si lo mantengo, corta al soltar</label>
   <label class="check"><input type="checkbox" id="edNorm"> Igualar volumen <span class="norm-val" id="edNormOut"></span></label>
   <label class="check"><input type="checkbox" id="edChoke"> Cortar el sonido anterior al volver a tocar</label>
@@ -601,9 +607,67 @@ function padGain(i){
   if(!g){ g = padGains[i] = ctx.createGain(); g.connect(master); }
   return g;
 }
+/* ---------- Loop (como el modo Toggle de un clip en Ableton) ----------
+   Un toque arranca el loop y otro lo para con un fundido. El tramo recortado se repite sin cortes: antes de sonar
+   se arma una copia en la que el final se funde con el principio (crossfade de igual potencia, hasta 0,3 s), como el
+   crossfade de loop de Simpler, así el empalme no hace click. Se arma una vez por sonido y recorte. */
+var loops = {}, loopCache = {};
+/* Un loop sigue sonando si cambiás de botonera; se identifica por botonera y pad */
+function lk(i){ return (state.id || "demo") + ":" + i; }
+function loopBuffer(buf, s, e, key){
+  if(loopCache[key]) return loopCache[key];
+  var sr = buf.sampleRate, s0 = Math.floor(s*sr), len = Math.max(2, Math.floor(e*sr) - s0);
+  var xf = Math.min(Math.floor(0.3*sr), Math.floor(len*0.04)), N = len - xf, chs = buf.numberOfChannels;
+  var out = ctx.createBuffer(chs, N, sr);
+  for(var c=0;c<chs;c++){
+    var x = buf.getChannelData(c), y = out.getChannelData(c);
+    y.set(x.subarray(s0, s0 + N));                          // el tramo sin la cola
+    for(var j=0;j<xf;j++){                                  // arranque: el principio entra mientras la cola sale
+      var a = (j + 0.5)/xf;
+      y[j] = x[s0 + j]*Math.sin(a*Math.PI/2) + x[s0 + N + j]*Math.cos(a*Math.PI/2);
+    }
+  }
+  loopCache[key] = out;
+  return out;
+}
+function stopLoop(i, fast){
+  var v = loops[lk(i)]; if(!v) return;
+  delete loops[lk(i)];
+  var t = v.src.context.currentTime, f = fast ? 0.015 : 0.25;
+  v.rg.gain.cancelScheduledValues(t); v.rg.gain.setValueAtTime(v.rg.gain.value, t);
+  v.rg.gain.linearRampToValueAtTime(0, t + f);
+  try{ v.src.stop(t + f + 0.01); }catch(e){}
+  if(padEls[i]) padEls[i].classList.remove("looping");
+}
+function startLoop(i, cell, buf){
+  var o = outFor(cell), C = o ? o.c : ctx;
+  if(C.state !== "running") C.resume();
+  var dur = buf.duration, s = Math.max(0, Math.min(cell.start || 0, dur)), e = cell.end == null ? dur : Math.min(cell.end, dur);
+  if(e - s < 0.05){ s = 0; e = dur; }
+  var anti = monoOn && antiBuf[cell.sound], key = cell.sound + "|" + s.toFixed(4) + "|" + e.toFixed(4) + (anti ? "|m" : "");
+  var lb = loopBuffer(anti ? antiBuf[cell.sound] : buf, s, e, key);
+  var src = C.createBufferSource(), rg = C.createGain(), g = o ? o.master : padGain(i);
+  var ng = cell.norm === false || !cell.ng ? 1 : cell.ng;
+  if(o) ng *= cell.gain == null ? 1 : cell.gain;
+  src.buffer = lb; src.loop = true;
+  var t = C.currentTime;
+  rg.gain.setValueAtTime(0, t); rg.gain.linearRampToValueAtTime(ng, t + 0.03);
+  src.connect(rg); rg.connect(g); src.start(0);
+  var v = {src:src, rg:rg, ng:ng, key:key}, K = lk(i);
+  loops[K] = v; playing.push(src);
+  src.onended = function(){ var k = playing.indexOf(src); if(k >= 0) playing.splice(k, 1); rg.disconnect();
+    if(loops[K] === v){ delete loops[K]; if(lk(i) === K && padEls[i]) padEls[i].classList.remove("looping"); } };
+  if(padEls[i]) padEls[i].classList.add("looping");
+  return v;
+}
 function trigger(i){
   var cell = state.cells[i]; if(!cell || !cell.sound) return;
   var buf = buffers[cell.sound]; if(!buf) return;
+  if(cell.loop){
+    if(loops[lk(i)]){ stopLoop(i); return null; }
+    return startLoop(i, cell, buf);
+  }
+  if(loops[lk(i)]) stopLoop(i, true);
   var o = outFor(cell), C = o ? o.c : ctx;
   if(C.state !== "running") C.resume();
   var g = o ? o.master : padGain(i);
@@ -728,6 +792,7 @@ function release(v){
 /* Panic: fundido de 15 ms para que no haga click y corte todas las voces */
 function panic(){
   var list = playing; playing = []; voices = [];
+  loops = {}; for(var pi in padEls) padEls[pi].classList.remove("looping");
   function fade(c, pg){ var t = c.currentTime; pg.gain.cancelScheduledValues(t); pg.gain.setValueAtTime(pg.gain.value, t);
     pg.gain.linearRampToValueAtTime(0, t + 0.015); pg.gain.setValueAtTime(1, t + 0.02); }
   fade(ctx, panicGain); eachOut(function(o){ fade(o.c, o.panic); });
@@ -1114,6 +1179,8 @@ function paintPad(i){
   var path = el.querySelector(".wave path");
   if(path.getAttribute("d") !== d) path.setAttribute("d", d);
   el.classList.toggle("loading", !!(has && !buffers[cell.sound]));
+  el.classList.toggle("isloop", !!(has && cell.loop));
+  el.classList.toggle("looping", !!loops[lk(i)]);
 }
 
 /* Forma de onda resumida: 48 columnas de pico, calculadas una sola vez por sonido y dibujadas como SVG que escala con el pad */
@@ -1180,7 +1247,7 @@ function onUp(key, cancel){
   }
   a.el.classList.remove("hit");
   var cell = state.cells[a.i];
-  if(a.v && cell && cell.hold !== false && Date.now() - a.t >= HOLD_MS) release(a.v);
+  if(a.v && cell && !cell.loop && cell.hold !== false && Date.now() - a.t >= HOLD_MS) release(a.v);
 }
 function startDrag(key, a){
   drag = {key:key, el:a.el, i:a.i, x0:a.x0, y0:a.y0, target:null};
@@ -1332,6 +1399,8 @@ function syncEditor(){
   document.getElementById("edNormOut").textContent = normOn && ngDb != null && cell.sound
     ? (ngDb >= 0.05 ? "+" : ngDb <= -0.05 ? "−" : "") + Math.abs(ngDb).toFixed(1) + " dB" : "";
   document.getElementById("edHold").checked = cell.hold !== false;
+  document.getElementById("edLoop").checked = !!cell.loop;
+  document.getElementById("edHold").disabled = !!cell.loop;
   document.getElementById("edPick").value = cell.sound || "";
   var buf = cell.sound ? buffers[cell.sound] : null;
   document.getElementById("edTrim").disabled = !buf;
@@ -1487,6 +1556,11 @@ if(SINK_OK){
   document.getElementById("edOut").onchange = function(e){ var c = cellFor(selected); c.out = e.target.value || null; markDirty(); };
 }
 document.getElementById("prMono").onchange = function(e){ settings.mono = e.target.checked; setMono(settings.mono); saveSettings(); };
+document.getElementById("edLoop").onchange = function(e){
+  var c = cellFor(selected); c.loop = e.target.checked;
+  if(!c.loop && loops[lk(selected)]) stopLoop(selected);
+  document.getElementById("edHold").disabled = c.loop; paintPad(selected); markDirty();
+};
 document.getElementById("edHold").onchange = function(e){ cellFor(selected).hold = e.target.checked; markDirty(); };
 document.getElementById("edClear").onclick = function(){
   var i = selected; state.cells[i] = null; cellFor(i); paintPad(i); syncEditor(); markDirty();
