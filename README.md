@@ -46,6 +46,7 @@ Quien la recibe abre la Botonera, va a **Presets**, escribe el código y toca **
 - Límites: 15 MB por sonido y 60 MB por botonera. Si un sonido pesa más, recortalo o pasalo a MP3.
 - Si un sonido ya lo tenías, no se vuelve a bajar. Si recibís dos veces el mismo código, se abre la botonera que ya tenías.
 - Las botoneras se guardan en el KV de Cloudflare del worker (`/share`), dentro del plan gratis: cada botonera compartida usa 2 escrituras más una por sonido, de las 1000 por día que da el plan.
+- **Uso:** `https://botonera-myinstants.brunebell8.workers.dev/stats` muestra cuántas botoneras se compartieron y recibieron por día, con los sonidos y MB subidos. No guarda quién compartió ni qué sonidos.
 
 ## Cambiar de botonera
 

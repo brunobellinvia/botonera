@@ -47,8 +47,9 @@ const FS_FIELDS = "id,name,tags,previews,duration,type,samplerate,license,userna
 const FS_SORTS = ["score", "downloads_desc", "rating_desc", "created_desc", "duration_asc"];
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     env = env || {};
+    const later = p => { try { ctx && ctx.waitUntil ? ctx.waitUntil(p) : p.catch(() => {}); } catch (e) {} };
     const url = new URL(req.url);
     const origin = req.headers.get("Origin");
     const cors = corsHeaders(origin);
@@ -56,8 +57,9 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     // Un pedido desde otro sitio web se rechaza; uno sin Origin (abrir la dirección a mano) se deja pasar para probar
     if (origin && !cors["Access-Control-Allow-Origin"]) return json({ error: "origin_not_allowed" }, 403, {});
+    if (url.pathname === "/stats" && req.method === "GET") return await stats(env);
     if (url.pathname === "/share" || url.pathname.indexOf("/share/") === 0) {
-      try { return await share(url, req, env, cors); }
+      try { return await share(url, req, env, cors, later); }
       catch (e) { return json({ error: "share_failed", detail: String(e && e.message || e) }, 503, cors); }
     }
     if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
@@ -375,7 +377,8 @@ function shareCode() {
 }
 function hex(n) { const r = new Uint8Array(n); crypto.getRandomValues(r); return Array.from(r, b => b.toString(16).padStart(2, "0")).join(""); }
 
-async function share(url, req, env, cors) {
+async function share(url, req, env, cors, later) {
+  later = later || (() => {});
   if (!env.FS_KV) return json({ error: "share_not_configured" }, 503, cors);
   const KV = env.FS_KV, parts = url.pathname.split("/").filter(Boolean);   // ["share", CODE, "s", N]
 
@@ -413,6 +416,7 @@ async function share(url, req, env, cors) {
 
   if (parts.length === 2 && req.method === "GET") {
     if (!rec.ready) return json({ error: "not_ready" }, 409, cors);
+    later(bump(env, { recibidas: 1 }));
     return json({ code, preset: rec.preset, sounds: rec.sounds, expires: rec.expires }, 200, cors);
   }
   if (parts.length === 4 && parts[2] === "s") {
@@ -437,7 +441,46 @@ async function share(url, req, env, cors) {
     if (req.headers.get("X-Share-Token") !== rec.token) return json({ error: "forbidden" }, 403, cors);
     rec.ready = true;
     await KV.put("bs:" + code, JSON.stringify(rec), { expiration: rec.expires });
+    later(bump(env, { compartidas: 1, sonidos: rec.sounds.length,
+      mb: Math.round(rec.sounds.reduce((a, x) => a + x.size, 0) / 1048576 * 10) / 10 }));
     return json({ ok: true, code, expires: rec.expires }, 200, cors);
   }
   return json({ error: "not_found" }, 404, cors);
+}
+
+/* ---------------- Uso: cuántas botoneras se comparten y se reciben por día ----------------
+   Un registro por día (hora de Argentina) en el KV, guardado 400 días. Cada evento suma una escritura.
+   /stats muestra una tabla con los totales; no guarda nada de quién compartió ni de qué sonidos. */
+function argDay(t) { return new Date((t || Date.now()) - 3 * 3600e3).toISOString().slice(0, 10); }
+async function bump(env, add) {
+  try {
+    const k = "stats:" + argDay(), cur = JSON.parse((await env.FS_KV.get(k)) || "{}");
+    for (const f in add) cur[f] = Math.round(((cur[f] || 0) + add[f]) * 10) / 10;
+    await env.FS_KV.put(k, JSON.stringify(cur), { expirationTtl: 400 * 86400 });
+  } catch (e) {}
+}
+async function stats(env) {
+  if (!env.FS_KV) return json({ error: "share_not_configured" }, 503, {});
+  const keys = []; let cursor;
+  do { const r = await env.FS_KV.list({ prefix: "stats:", cursor }); r.keys.forEach(k => keys.push(k.name)); cursor = r.list_complete ? null : r.cursor; } while (cursor);
+  keys.sort().reverse();
+  const rows = await Promise.all(keys.slice(0, 90).map(async k => [k.slice(6), JSON.parse((await env.FS_KV.get(k)) || "{}")]));
+  const tot = { compartidas: 0, recibidas: 0, sonidos: 0, mb: 0 };
+  rows.forEach(([, v]) => { for (const f in tot) tot[f] += v[f] || 0; });
+  const td = v => "<td>" + (v || 0) + "</td>";
+  const fmtDay = d => d.slice(8, 10) + "/" + d.slice(5, 7) + "/" + d.slice(0, 4);
+  const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Botonera · uso</title>
+<style>body{font:16px/1.4 -apple-system,system-ui,sans-serif;background:#141518;color:#e9e6df;margin:0;padding:24px 16px}
+h1{font-size:22px;margin:0 0 4px}p{color:#8d8f94;margin:0 0 20px}
+.tot{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}.tot div{background:#1d1f23;border:1px solid #33363c;border-radius:10px;padding:12px 16px;min-width:120px}
+.tot b{display:block;font-size:28px;color:#e8a33d;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;max-width:640px;font-variant-numeric:tabular-nums}th,td{text-align:right;padding:8px 10px;border-bottom:1px solid #33363c}
+th:first-child,td:first-child{text-align:left}th{color:#8d8f94;font-weight:500}</style>
+<h1>Uso de la Botonera</h1><p>Botoneras compartidas y recibidas con código, por día (hora de Argentina). Últimos ${rows.length} días con actividad.</p>
+<div class="tot"><div><b>${tot.compartidas}</b>compartidas</div><div><b>${tot.recibidas}</b>recibidas</div><div><b>${tot.sonidos}</b>sonidos subidos</div><div><b>${Math.round(tot.mb * 10) / 10}</b>MB subidos</div></div>
+<table><tr><th>Día</th><th>Compartidas</th><th>Recibidas</th><th>Sonidos</th><th>MB</th></tr>
+${rows.map(([d, v]) => "<tr><td>" + fmtDay(d) + "</td>" + td(v.compartidas) + td(v.recibidas) + td(v.sonidos) + td(v.mb) + "</tr>").join("\n") || '<tr><td colspan="5">Todavía no se compartió ninguna botonera.</td></tr>'}
+</table></html>`;
+  return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
