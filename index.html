@@ -2296,7 +2296,7 @@ function prMsg(t){ var m = document.getElementById("prMsg"); m.hidden = !t; m.te
 function openPresets(){
   document.getElementById("prName").value = state.name || "";
   prMsg(autosaveFail ? "No se pudo guardar en el iPad: puede que esté sin espacio." : "Los cambios se guardan solos en esta botonera.");
-  renderList(); openSheet("presets");
+  resetExport(); renderList(); openSheet("presets");
 }
 document.getElementById("presetsBtn").onclick = openPresets;
 /* Cambio rápido de botonera: el nombre abre un menú desplegable (como los de iOS) con todas las botoneras.
@@ -2420,25 +2420,56 @@ document.getElementById("prDemo").onclick = function(){ loadPreset(demoPreset())
 /* exportar / importar */
 function ab2b64(ab){ var u = new Uint8Array(ab), s = "", ch = 0x8000; for(var i=0;i<u.length;i+=ch) s += String.fromCharCode.apply(null, u.subarray(i, i+ch)); return btoa(s); }
 function b642ab(b){ var s = atob(b), u = new Uint8Array(s.length); for(var i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u.buffer; }
-document.getElementById("prExport").onclick = function(){
+/* Exportar. iOS solo abre Compartir si viene directo de un toque, y armar el archivo (leer los sonidos y pasarlos a texto)
+   tarda: por eso el primer toque lo prepara y el segundo lo comparte. En computadora se descarga directo */
+var exportFile = null;
+function buildExport(){
   var ids = {}; state.cells.forEach(function(c){ if(c && c.sound && c.sound.indexOf("demo:") !== 0) ids[c.sound] = 1; });
-  Promise.all(Object.keys(ids).map(function(id){ return idb.get("sounds", id); })).then(function(recs){
+  return Promise.all(Object.keys(ids).map(function(id){ return idb.get("sounds", id); })).then(function(recs){
     var out = {format:"botonera", version:1, preset:clone(state),
       sounds: recs.filter(Boolean).map(function(r){ return {id:r.id, name:r.name, type:r.type, meta:r.meta || null, data:ab2b64(r.data)}; })};
-    var name = (state.name || "botonera").replace(/[^\w\- ]+/g,"").trim() + ".json";
+    var name = ((state.name || "botonera").normalize ? (state.name || "botonera").normalize("NFD").replace(/[̀-ͯ]/g, "") : (state.name || "botonera"))
+      .replace(/[^\w\- ]+/g, "").trim() || "botonera";
+    name += ".json";
     var blob = new Blob([JSON.stringify(out)], {type:"application/json"});
-    var kb = Math.round(blob.size/1024) + " KB";
-    var file = null; try{ file = new File([blob], name, {type:"application/json"}); }catch(e){}
-    /* En el iPad, la hoja de Compartir permite "Guardar en Archivos"; si no está, se descarga */
-    if(file && navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:name}).then(function(){ prMsg("Exportado " + name + " (" + kb + ")."); }, function(){});
+    var size = blob.size > 1048576 ? (blob.size/1048576).toFixed(1).replace(".", ",") + " MB" : Math.round(blob.size/1024) + " KB";
+    var file = null;
+    try{
+      file = new File([blob], name, {type:"application/json"});
+      if(navigator.canShare && !navigator.canShare({files:[file]})) file = new File([blob], name, {type:"text/plain"});
+    }catch(e){ file = null; }
+    return {blob:blob, file:file, name:name, size:size, sid:state.id, t:Date.now()};
+  });
+}
+function resetExport(){ exportFile = null; var b = document.getElementById("prExport"); b.textContent = "Exportar preset"; b.classList.remove("primary"); }
+function downloadExport(x){
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(x.blob); a.download = x.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+  prMsg("Descargado " + x.name + " (" + x.size + ").");
+}
+document.getElementById("prExport").onclick = function(){
+  var btn = this, touch = (navigator.maxTouchPoints || 0) > 1;
+  var x = exportFile;
+  if(x && x.sid === state.id && Date.now() - x.t < 120000){
+    resetExport();
+    navigator.share({files:[x.file], title:x.name}).then(function(){ prMsg("Exportado " + x.name + " (" + x.size + ")."); }, function(err){
+      if(err && err.name === "AbortError") return;      // cerraste la hoja de Compartir
+      prMsg("iOS no dejó compartir el archivo (" + (err && err.name || "error") + "). Probá de nuevo.");
+    });
+    return;
+  }
+  resetExport(); btn.disabled = true; prMsg("Preparando la botonera…");
+  buildExport().then(function(x){
+    btn.disabled = false;
+    if(touch && x.file && navigator.share && (!navigator.canShare || navigator.canShare({files:[x.file]}))){
+      exportFile = x; btn.textContent = "Compartir " + x.name; btn.classList.add("primary");
+      prMsg("Listo (" + x.size + "). Tocá Compartir y elegí Guardar en Archivos, WhatsApp o AirDrop.");
       return;
     }
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    prMsg("Exportando " + name + " (" + kb + ").");
-  }).catch(function(){ prMsg("No se pudo exportar."); });
+    downloadExport(x);
+  }).catch(function(){ btn.disabled = false; prMsg("No se pudo exportar."); });
 };
 document.getElementById("prImport").onchange = function(e){
   var f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
