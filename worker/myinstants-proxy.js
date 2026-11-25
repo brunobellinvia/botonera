@@ -54,9 +54,13 @@ export default {
     const cors = corsHeaders(origin);
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
     // Un pedido desde otro sitio web se rechaza; uno sin Origin (abrir la dirección a mano) se deja pasar para probar
     if (origin && !cors["Access-Control-Allow-Origin"]) return json({ error: "origin_not_allowed" }, 403, {});
+    if (url.pathname === "/share" || url.pathname.indexOf("/share/") === 0) {
+      try { return await share(url, req, env, cors); }
+      catch (e) { return json({ error: "share_failed", detail: String(e && e.message || e) }, 503, cors); }
+    }
+    if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
 
     try {
       if (url.pathname === "/" || url.pathname === "") return json({ ok: true, service: "botonera-myinstants",
@@ -164,8 +168,8 @@ function corsHeaders(origin) {
   const h = { "Vary": "Origin" };
   if (origin && (ALLOWED_ORIGINS.indexOf(origin) >= 0 || ALLOWED_ORIGINS.indexOf("*") >= 0)) {
     h["Access-Control-Allow-Origin"] = origin;
-    h["Access-Control-Allow-Methods"] = "GET, OPTIONS";
-    h["Access-Control-Allow-Headers"] = "X-Botonera-Session";
+    h["Access-Control-Allow-Methods"] = "GET, POST, PUT, OPTIONS";
+    h["Access-Control-Allow-Headers"] = "X-Botonera-Session, X-Share-Token, Content-Type";
     h["Access-Control-Expose-Headers"] = "X-Sound-Type, X-Sound-Name";
     h["Access-Control-Max-Age"] = "86400";
   }
@@ -348,4 +352,92 @@ function page(title, text) {
     '<title>' + esc(title) + '</title><body style="margin:0;background:#141518;color:#e9e6df;font:18px/1.4 -apple-system,Helvetica,sans-serif;padding:40px 24px">' +
     '<h1 style="font-size:26px;margin:0 0 12px">' + esc(title) + '</h1><p style="max-width:32em;color:#c9c6bf">' + esc(text) + '</p></body>',
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+/* ---------------- Compartir botoneras con un código ----------------
+   POST /share                      {preset, sounds:[{id,name,type,meta,size}]} → {code, token, expires}
+   PUT  /share/CODE/s/N             cuerpo: el archivo de sonido N (header X-Share-Token)
+   POST /share/CODE/done            cierra la subida (header X-Share-Token)
+   GET  /share/CODE                 → {preset, sounds, expires}
+   GET  /share/CODE/s/N             → el archivo de sonido N
+   Todo vive en el KV con vencimiento de 30 días. Límites: 15 MB por sonido, 60 MB y 144 sonidos por botonera.
+   Cada botonera compartida usa 2 + (cantidad de sonidos) escrituras del KV; el plan gratis permite 1000 por día. */
+const SHARE_TTL = 30 * 86400;
+const SHARE_MAX_SOUND = 15 * 1024 * 1024;
+const SHARE_MAX_TOTAL = 60 * 1024 * 1024;
+const SHARE_MAX_SOUNDS = 144;
+const SHARE_ALPHA = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+function shareCode() {
+  const r = new Uint8Array(6); crypto.getRandomValues(r);
+  let c = ""; for (let i = 0; i < 6; i++) c += SHARE_ALPHA[r[i] % SHARE_ALPHA.length];
+  return c;
+}
+function hex(n) { const r = new Uint8Array(n); crypto.getRandomValues(r); return Array.from(r, b => b.toString(16).padStart(2, "0")).join(""); }
+
+async function share(url, req, env, cors) {
+  if (!env.FS_KV) return json({ error: "share_not_configured" }, 503, cors);
+  const KV = env.FS_KV, parts = url.pathname.split("/").filter(Boolean);   // ["share", CODE, "s", N]
+
+  if (parts.length === 1 && req.method === "POST") {
+    const len = +(req.headers.get("Content-Length") || 0);
+    if (len > 2 * 1024 * 1024) return json({ error: "too_big", detail: "preset" }, 413, cors);
+    let body; try { body = await req.json(); } catch (e) { return json({ error: "bad_json" }, 400, cors); }
+    const p = body && body.preset, list = Array.isArray(body && body.sounds) ? body.sounds : null;
+    if (!p || !Array.isArray(p.cells) || !list) return json({ error: "bad_request" }, 400, cors);
+    if (!(p.rows >= 1 && p.rows <= 12 && p.cols >= 1 && p.cols <= 12)) return json({ error: "bad_grid" }, 400, cors);
+    if (list.length > SHARE_MAX_SOUNDS) return json({ error: "too_many_sounds", max: SHARE_MAX_SOUNDS }, 413, cors);
+    let total = 0;
+    const sounds = list.map(x => ({ id: String(x.id || "").slice(0, 80), name: String(x.name || "").slice(0, 200),
+      type: String(x.type || "").slice(0, 60), meta: x.meta && typeof x.meta === "object" ? x.meta : null, size: +x.size || 0 }));
+    for (const x of sounds) {
+      if (!x.id || x.size <= 0) return json({ error: "bad_sound" }, 400, cors);
+      if (x.size > SHARE_MAX_SOUND) return json({ error: "sound_too_big", name: x.name, max: SHARE_MAX_SOUND }, 413, cors);
+      total += x.size;
+    }
+    if (total > SHARE_MAX_TOTAL) return json({ error: "board_too_big", max: SHARE_MAX_TOTAL }, 413, cors);
+    let code = "";
+    for (let k = 0; k < 5 && !code; k++) { const c = shareCode(); if (!(await KV.get("bs:" + c))) code = c; }
+    if (!code) return json({ error: "no_code" }, 503, cors);
+    const expires = Math.floor(Date.now() / 1000) + SHARE_TTL;
+    const rec = { preset: p, sounds, token: hex(16), ready: false, created: Date.now(), expires };
+    await KV.put("bs:" + code, JSON.stringify(rec), { expiration: expires });
+    return json({ code, token: rec.token, expires }, 200, cors);
+  }
+
+  const code = (parts[1] || "").toUpperCase();
+  if (!/^[2-9A-HJKMNP-Z]{6}$/.test(code)) return json({ error: "bad_code" }, 400, cors);
+  const raw = await KV.get("bs:" + code);
+  if (!raw) return json({ error: "not_found" }, 404, cors);
+  const rec = JSON.parse(raw);
+
+  if (parts.length === 2 && req.method === "GET") {
+    if (!rec.ready) return json({ error: "not_ready" }, 409, cors);
+    return json({ code, preset: rec.preset, sounds: rec.sounds, expires: rec.expires }, 200, cors);
+  }
+  if (parts.length === 4 && parts[2] === "s") {
+    const n = parseInt(parts[3], 10), info = rec.sounds[n];
+    if (!info) return json({ error: "not_found" }, 404, cors);
+    const key = "bss:" + code + ":" + n;
+    if (req.method === "GET") {
+      const buf = await KV.get(key, "arrayBuffer");
+      if (!buf) return json({ error: "not_found" }, 404, cors);
+      const h = new Headers(cors); h.set("Content-Type", info.type || "application/octet-stream"); h.set("Cache-Control", "private, max-age=86400");
+      return new Response(buf, { status: 200, headers: h });
+    }
+    if (req.method === "PUT") {
+      if (req.headers.get("X-Share-Token") !== rec.token || rec.ready) return json({ error: "forbidden" }, 403, cors);
+      const buf = await req.arrayBuffer();
+      if (buf.byteLength !== info.size || buf.byteLength > SHARE_MAX_SOUND) return json({ error: "bad_size" }, 400, cors);
+      await KV.put(key, buf, { expiration: rec.expires });
+      return json({ ok: true }, 200, cors);
+    }
+  }
+  if (parts.length === 3 && parts[2] === "done" && req.method === "POST") {
+    if (req.headers.get("X-Share-Token") !== rec.token) return json({ error: "forbidden" }, 403, cors);
+    rec.ready = true;
+    await KV.put("bs:" + code, JSON.stringify(rec), { expiration: rec.expires });
+    return json({ ok: true, code, expires: rec.expires }, 200, cors);
+  }
+  return json({ error: "not_found" }, 404, cors);
 }

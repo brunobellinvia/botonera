@@ -193,6 +193,9 @@ button{touch-action:manipulation}
 .sheet header{display:flex;align-items:center;gap:10px}
 .sheet h2{margin:0;font-size:24px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;flex:1;text-wrap:balance}
 .field{display:flex;flex-direction:column;gap:8px}
+.shbox{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--pad)}
+.shcode{font-family:var(--f-mono);font-size:36px;font-weight:500;letter-spacing:.2em;color:var(--accent);-webkit-user-select:all;user-select:all}
+#shIn{width:10ch;flex:none;font-family:var(--f-mono);font-size:20px;letter-spacing:.15em;text-transform:uppercase}
 .field > span{font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .txt,select.txt{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:17px;min-width:0;flex:1}
@@ -373,6 +376,16 @@ body{margin:0}
     <p class="foot">Salida mono: activala si conectás el iPad a una consola o un parlante y algunos pads no suenan o suenan muy bajo. Manda los dos canales sumados por los dos lados y corrige los sonidos con un canal invertido, que al sumarse se anulan.</p>
   </div>
   <div class="field" id="updBox" hidden><span>Actualización</span><div class="upd"><span>Hay una versión nueva de la app.</span><button class="btn primary" id="updBtn">Actualizar ahora</button></div></div>
+  <div class="field"><span>Compartir con código</span>
+    <div class="row"><button class="btn" id="shSend">Compartir esta botonera</button></div>
+    <div class="shbox" id="shBox" hidden>
+      <b class="shcode" id="shCode"></b>
+      <div class="row"><button class="btn" id="shLink">Mandar el link</button><button class="btn" id="shCopy">Copiar código</button></div>
+      <p class="foot" id="shInfo"></p>
+    </div>
+    <div class="row"><input class="txt" id="shIn" placeholder="CÓDIGO" maxlength="8" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="go"><button class="btn" id="shGet">Recibir botonera</button></div>
+    <p class="foot" id="shMsg">Compartir sube esta botonera con sus sonidos y te da un código. Quien lo reciba lo escribe acá y toca Recibir. Los códigos duran 30 días; lo recibido queda guardado para siempre.</p>
+  </div>
   <div class="field"><span>Guardados en este iPad</span><div class="list" id="prList"></div></div>
   <div class="field"><span>Archivo</span>
     <div class="row">
@@ -380,7 +393,7 @@ body{margin:0}
       <label class="btn file">Importar<input type="file" id="prImport" accept=".json,application/json"></label>
       <button class="btn" id="prDemo">Cargar kit demo</button>
     </div>
-    <p class="foot">Exportar arma un .json con la grilla y los sonidos adentro. En el iPad se abre Compartir: elegí "Guardar en Archivos".</p>
+    <p class="foot">Exportar arma un .json con la grilla y los sonidos adentro. En el iPad son dos toques: el primero lo prepara y el segundo abre Compartir.</p>
     <p class="foot" id="appVer" hidden></p>
   </div>
 </section>
@@ -2485,6 +2498,103 @@ document.getElementById("prImport").onchange = function(e){
   rd.readAsText(f);
 };
 
+/* ---------- compartir con código ----------
+   La botonera y sus sonidos se suben al worker de Cloudflare (KV, 30 días) y se bajan con un código de 6 caracteres.
+   Se usa código además del link porque en el iPad los links se abren en Safari, que guarda aparte de la app instalada */
+var SHARE_RE = /^[2-9A-HJKMNP-Z]{6}$/;
+function shareBase(){ return (settings.proxy || DEFAULT_PROXY).replace(/\/+$/, ""); }
+function shMsg(t){ document.getElementById("shMsg").textContent = t; }
+function shareLink(code){ return location.origin + location.pathname + "?b=" + code; }
+function readJ(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok) throw {status:r.status, j:j}; return j; }); }
+function shErr(e){
+  var j = e && e.j || {};
+  if(!e || !e.status) return "No hay conexión con el servidor. Revisá internet y probá de nuevo.";
+  if(j.error === "sound_too_big") return "El sonido “" + (j.name || "") + "” pesa más de 15 MB. Recortalo o usá un MP3 y probá de nuevo.";
+  if(j.error === "board_too_big") return "La botonera pesa más de 60 MB. Sacá o recortá sonidos largos y probá de nuevo.";
+  if(j.error === "too_many_sounds") return "La botonera tiene demasiados sonidos para compartir.";
+  if(j.error === "not_found") return "Ese código no existe o ya venció (duran 30 días).";
+  if(j.error === "not_ready") return "Esa botonera todavía se está subiendo. Probá en un minuto.";
+  if(j.error === "bad_code") return "El código tiene 6 caracteres, letras y números.";
+  if(j.error === "share_failed" || j.error === "share_not_configured") return "El servidor no pudo guardar la botonera (puede haber llegado al límite gratis del día). Probá más tarde.";
+  return "No se pudo completar (" + (j.error || e.status) + ").";
+}
+document.getElementById("shSend").onclick = function(){
+  var btn = this, base = shareBase(), recs = [], ids = [];
+  btn.disabled = true; document.getElementById("shBox").hidden = true; shMsg("Preparando…");
+  clearTimeout(saveTimer);
+  var flush = dirty ? Promise.resolve(autosave()).catch(function(){}) : Promise.resolve();
+  state.cells.forEach(function(c){ if(c && c.sound && c.sound.indexOf("demo:") !== 0 && ids.indexOf(c.sound) < 0) ids.push(c.sound); });
+  flush.then(function(){ return Promise.all(ids.map(function(id){ return idb.get("sounds", id); })); }).then(function(rs){
+    recs = rs.filter(function(r){ return r && r.data; });
+    var preset = clone(state); delete preset.id; delete preset.shareCode;
+    var body = {preset:preset, sounds:recs.map(function(r){ return {id:r.id, name:r.name, type:r.type, meta:r.meta || null, size:r.data.byteLength}; })};
+    return fetch(base + "/share", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)}).then(readJ);
+  }).then(function(j){
+    var k = 0;
+    function next(){
+      if(k >= recs.length) return fetch(base + "/share/" + j.code + "/done", {method:"POST", headers:{"X-Share-Token":j.token}}).then(readJ).then(function(){ return j; });
+      shMsg("Subiendo sonido " + (k + 1) + " de " + recs.length + "…");
+      return fetch(base + "/share/" + j.code + "/s/" + k, {method:"PUT", headers:{"X-Share-Token":j.token}, body:recs[k].data}).then(readJ).then(function(){ k++; return next(); });
+    }
+    return next();
+  }).then(function(j){
+    var d = new Date(j.expires*1000);
+    document.getElementById("shCode").textContent = j.code;
+    document.getElementById("shInfo").textContent = "Vence el " + d.getDate() + "/" + (d.getMonth() + 1) + ". Quien la reciba: Presets → escribe el código → Recibir botonera. En la computadora alcanza con abrir el link.";
+    document.getElementById("shBox").hidden = false;
+    document.getElementById("shBox").dataset.code = j.code;
+    shMsg("Listo: “" + (state.name || "Botonera") + "” quedó compartida.");
+  }).catch(function(e){ shMsg(shErr(e)); }).then(function(){ btn.disabled = false; });
+};
+document.getElementById("shCopy").onclick = function(){
+  var code = document.getElementById("shBox").dataset.code;
+  var ok = function(){ shMsg("Código copiado: " + code); };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, function(){ shMsg("Copialo a mano: " + code); });
+  else shMsg("Copialo a mano: " + code);
+};
+document.getElementById("shLink").onclick = function(){
+  var code = document.getElementById("shBox").dataset.code, url = shareLink(code);
+  var text = "Te paso mi botonera “" + (state.name || "Botonera") + "”. Abrí la Botonera → Presets → Recibir botonera, con el código " + code + ". O abrí: " + url;
+  if(navigator.share) navigator.share({text:text}).catch(function(){});
+  else if(navigator.clipboard) navigator.clipboard.writeText(text).then(function(){ shMsg("Link copiado."); }, function(){ shMsg(url); });
+  else shMsg(url);
+};
+function receiveShare(raw){
+  var code = String(raw || "").toUpperCase().replace(/[^0-9A-Z]/g, ""), base = shareBase(), btn = document.getElementById("shGet");
+  if(!SHARE_RE.test(code)){ shMsg("El código tiene 6 caracteres, letras y números."); return Promise.resolve(); }
+  btn.disabled = true; shMsg("Buscando " + code + "…");
+  return idb.all("presets").then(function(ps){
+    var mine = ps.filter(function(x){ return x.shareCode === code; })[0];
+    if(mine) return loadPreset(mine).then(function(){ shMsg("Ya tenías esta botonera: “" + mine.name + "”. La abrí."); });
+    return fetch(base + "/share/" + code).then(readJ).then(function(j){
+      var list = j.sounds || [], k = 0;
+      function next(){
+        if(k >= list.length) return Promise.resolve();
+        var x = list[k], n = k; k++;
+        return idb.get("sounds", x.id).then(function(have){
+          if(have && have.data && have.data.byteLength === x.size){ soundNames[x.id] = have.name; return next(); }   // ya lo tenías
+          shMsg("Bajando sonido " + (n + 1) + " de " + list.length + "…");
+          return fetch(base + "/share/" + code + "/s/" + n).then(function(r){ if(!r.ok) throw {status:r.status, j:{error:"not_found"}}; return r.arrayBuffer(); })
+            .then(function(ab){ soundNames[x.id] = x.name; if(x.meta) soundMeta[x.id] = x.meta;
+              return idb.put("sounds", {id:x.id, name:x.name, type:x.type, meta:x.meta || null, data:ab}); }).then(next);
+        });
+      }
+      return next().then(function(){
+        var p = j.preset, names = {}; ps.forEach(function(x){ names[x.name] = 1; });
+        var base0 = p.name || "Botonera compartida", nm = base0, c = 1; while(names[nm]) nm = base0 + " (" + (++c) + ")";
+        p.name = nm; p.id = uid("p_"); p.shareCode = code; p.updated = Date.now();
+        while(p.cells.length < MAX*MAX) p.cells.push(null);
+        return idb.put("presets", p).then(function(){ return loadPreset(p); }).then(function(){
+          idb.put("meta", {id:"current", state:state, dirty:false}).catch(function(){});
+          renderList(); shMsg("Listo: “" + p.name + "” quedó guardada acá, con sus sonidos.");
+        });
+      });
+    });
+  }).catch(function(e){ shMsg(shErr(e)); }).then(function(){ btn.disabled = false; });
+}
+document.getElementById("shGet").onclick = function(){ receiveShare(document.getElementById("shIn").value); };
+document.getElementById("shIn").addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); this.blur(); receiveShare(this.value); } });
+
 /* ---------- arranque ---------- */
 while(state.cells.length < MAX*MAX) state.cells.push(null);
 renderGrid(); setMode("play");
@@ -2506,7 +2616,13 @@ openDB().then(function(){ return idb.get("meta", "settings"); }).then(function(s
   if(m && m.state){
     return loadPreset(m.state).then(function(){ if(m.dirty){ dirty = false; markDirty(); } });
   }
-}).catch(function(){});
+}).catch(function(){}).then(function(){
+  /* Link de una botonera compartida (…/botonera/?b=CODIGO): la recibe al abrir */
+  var mm = location.search.match(/[?&]b=([0-9A-Za-z]{6})\b/); if(!mm) return;
+  try { history.replaceState(null, "", location.pathname); } catch(e){}
+  openPresets(); document.getElementById("shIn").value = mm[1].toUpperCase();
+  return receiveShare(mm[1]);
+});
 })();
 </script>
 

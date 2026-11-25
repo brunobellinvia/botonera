@@ -36,6 +36,17 @@ En la app, con Freesound elegido, tocá **Conectar Freesound**. Se abre Safari p
 
 Cada resultado muestra su licencia. **CC0** se usa libremente. **CC BY** pide mencionar al autor cuando publiques algo que lo use. **CC BY-NC** (en ámbar) no permite uso comercial: revisalo antes de usar esos sonidos en un show pago. La licencia y el autor quedan guardados junto con cada sonido.
 
+## Compartir una botonera con un código
+
+En **Presets → Compartir con código**, **Compartir esta botonera** la sube con todos sus sonidos y te da un código de 6 caracteres. **Mandar el link** abre Compartir con un mensaje listo, con el código y el link.
+
+Quien la recibe abre la Botonera, va a **Presets**, escribe el código y toca **Recibir botonera**. Le bajan la grilla y los sonidos, y queda guardada en su dispositivo para siempre. En la computadora alcanza con abrir el link. En el iPad conviene el código: los links de WhatsApp se abren en Safari, que guarda aparte de la app instalada en la pantalla de inicio.
+
+- Los códigos duran 30 días. Lo recibido no vence.
+- Límites: 15 MB por sonido y 60 MB por botonera. Si un sonido pesa más, recortalo o pasalo a MP3.
+- Si un sonido ya lo tenías, no se vuelve a bajar. Si recibís dos veces el mismo código, se abre la botonera que ya tenías.
+- Las botoneras se guardan en el KV de Cloudflare del worker (`/share`), dentro del plan gratis: cada botonera compartida usa 2 escrituras más una por sonido, de las 1000 por día que da el plan.
+
 ## Cambiar de botonera
 
 Tocá el nombre de la botonera, arriba a la izquierda, en Tocar o en Editar. Se despliega un menú como los de iOS con todas tus botoneras en orden alfabético; la abierta tiene una tilde. Tocá otra y cambia al instante. Lo que estabas haciendo se guarda antes de cambiar, y los sonidos que ya se usaron quedan cargados, así que volver es inmediato. **Nueva botonera** crea una vacía y la abre en Editar. **Administrar botoneras** abre Presets para renombrar, borrar, exportar o importar.
